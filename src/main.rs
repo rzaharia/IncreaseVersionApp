@@ -1,15 +1,16 @@
 mod callback_validator;
+mod webhook_data;
 extern crate dotenv;
-#[macro_use(dotenv)]
-extern crate dotenv_codegen;
 use std::collections::HashMap;
 
 use axum::{
-    body::Bytes, extract::Query, http::{HeaderMap, StatusCode}, routing::post, Json, Router
+    body::Bytes,
+    extract::Query,
+    http::{HeaderMap, StatusCode},
+    routing::post,
+    Router,
 };
 use log::{error, info};
-use serde::{Deserialize, Serialize};
-use serde_json::Value;
 
 use callback_validator::callback_validator;
 use dotenv::dotenv;
@@ -58,34 +59,12 @@ pub async fn callback_entrypoint(
     payload: Bytes,
 ) -> StatusCode {
     info!("Got a callback!");
-    let res = callback_validator(params, headers, payload).await;
-    if let Err(err) = res {
+    let webhook_result = callback_validator(params, headers, payload).await;
+    if let Err(err) = webhook_result {
         error!("Found error {err}");
         return StatusCode::BAD_REQUEST;
     }
-    // let create_user: CreateUser = match serde_json::from_value(payload) {
-    //     Ok(user) => user,
-    //     Err(_) => {
-    //         return (
-    //             StatusCode::BAD_REQUEST,
-    //             Json(User {
-    //                 id: 0,
-    //                 username: "".to_string(),
-    //             }),
-    //         )
-    //     }
-    // };
+    let webhook = webhook_result.unwrap();
     info!("ALL GOOD");
     StatusCode::OK
-}
-
-#[derive(Deserialize)]
-struct CreateUser {
-    username: String,
-}
-
-#[derive(Serialize)]
-struct User {
-    id: u64,
-    username: String,
 }

@@ -1,19 +1,12 @@
 use hex;
-use hmac::{digest::typenum::Len, Hmac, Mac};
+use hmac::{Hmac, Mac};
 use sha2::Sha256;
 use std::collections::HashMap;
 use std::env;
+use axum::{body::Bytes, http::HeaderMap};
+use crate::webhook_data::WebWebHook;
 
 type HmacSha256 = Hmac<Sha256>;
-
-use axum::{
-    body::Bytes,
-    http::{HeaderMap, StatusCode},
-    Json,
-};
-use serde_json::Value;
-
-use crate::{CreateUser, User};
 
 static EXPECTED_CALLBACK_HEADERS: [&str; 8] = [
     "X-GitHub-Hook-ID",
@@ -34,8 +27,6 @@ static EXPECTED_HEADERS_STARTING_VALUES: [(&'static str, &'static str); 3] = [
 
 static EXPECTED_HEADERS_INTEGER_VALUES: [&str; 2] =
     ["X-GitHub-Hook-ID", "X-GitHub-Hook-Installation-Target-ID"];
-
-pub struct WebHookOK {}
 
 async fn validate_headers(headers: &HeaderMap) -> Result<(), String> {
     for header in EXPECTED_CALLBACK_HEADERS {
@@ -103,7 +94,7 @@ pub async fn callback_validator(
     query_params: HashMap<String, String>,
     headers: HeaderMap,
     payload: Bytes,
-) -> Result<WebHookOK, String> {
+) -> Result<WebWebHook, String> {
     if !query_params.is_empty() {
         let params_count = query_params.len();
         return Err(format!("Found {params_count} instead of 0!"));
@@ -117,17 +108,10 @@ pub async fn callback_validator(
 
     verify_signature(&payload, signature_header).await?;
 
-    // let create_user: CreateUser = match serde_json::from_value(payload) {
-    //     Ok(user) => user,
-    //     Err(_) => {
-    //         return (
-    //             StatusCode::BAD_REQUEST,
-    //             Json(User {
-    //                 id: 0,
-    //                 username: "".to_string(),
-    //             }),
-    //         )
-    //     }
-    // };
-    Ok(WebHookOK {})
+    let webhook: Result<WebWebHook, serde_json::Error> = serde_json::from_slice(&payload);
+    if let Err(err) = webhook {
+        return Err(format!("Found at parsing json: {err}!"));
+    }
+
+    Ok(webhook.unwrap())
 }
