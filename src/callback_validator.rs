@@ -25,6 +25,11 @@ static EXPECTED_HEADERS_STARTING_VALUES: [(&'static str, &'static str); 3] = [
     ("User-Agent", "GitHub-Hookshot/"),
 ];
 
+static EXPECTED_HEADERS_INTEGER_VALUES: [&str;2] = [
+    "X-GitHub-Hook-ID",
+    "X-GitHub-Hook-Installation-Target-ID"
+];
+
 pub struct WebHookOK {}
 
 async fn validate_headers(headers: &HeaderMap) -> Result<(), String> {
@@ -42,12 +47,17 @@ async fn validate_headers(headers: &HeaderMap) -> Result<(), String> {
         if !value_data.starts_with(expected_value.1){
             let header_name = expected_value.0;
             let expected_val = expected_value.1;
-            return Err(format!("Header{header_name}-{value_data} does not start with value {expected_val}"));
+            return Err(format!("Header{header_name}-{value_data} does not start with value {expected_val}!"));
         }
     }
 
-    // TODO: could do more validation using the ID fields to be checked as positive integer values
-
+    for expected_integer in EXPECTED_HEADERS_INTEGER_VALUES {
+        let value_data = headers.get(expected_integer).unwrap().to_str().unwrap();
+        if value_data.parse::<u128>().is_err(){
+            return Err(format!("Header{expected_integer}-{value_data} does is a valid integer!"));
+        }
+    }
+    
     Ok(())
 }
 

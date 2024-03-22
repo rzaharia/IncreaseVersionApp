@@ -1,8 +1,13 @@
 mod callback_validator;
 use std::collections::HashMap;
 
-use axum::{extract::Query, http::{HeaderMap, StatusCode}, routing::post, Json, Router};
-use log::{info,error};
+use axum::{
+    extract::Query,
+    http::{HeaderMap, StatusCode},
+    routing::post,
+    Json, Router,
+};
+use log::{error, info};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -36,6 +41,8 @@ async fn main() {
     init_logger().unwrap();
     let app = Router::new().route("/callback", post(callback_entrypoint));
 
+    //add ip whitelisting https://api.github.com/meta
+    //axum resource for whitelisting https://docs.rs/axum/latest/axum/struct.Router.html#method.into_make_service_with_connect_info
     let addr = "0.0.0.0:3000";
     info!("Started listening on addr: {addr}");
     let listener = tokio::net::TcpListener::bind(addr).await.unwrap();
@@ -80,7 +87,6 @@ pub async fn callback_entrypoint(
         }),
     )
 }
-
 
 #[derive(Deserialize)]
 struct CreateUser {
