@@ -1,8 +1,10 @@
+mod app_errors;
 mod callback_validator;
 mod installation_token_data;
 mod webhook_data;
 mod worker;
 extern crate dotenv;
+use anyhow::Result;
 use axum::{
     body::Bytes,
     extract::Query,
@@ -14,7 +16,8 @@ use callback_validator::callback_validator;
 use core::panic;
 use dotenv::dotenv;
 use log::{error, info};
-use std::{collections::HashMap, env, fmt::format};
+use std::{collections::HashMap, env};
+use tokio::net::TcpListener;
 
 use crate::worker::increase_version;
 
@@ -53,6 +56,7 @@ async fn main() {
     //TODO: follow best practices https://docs.github.com/en/webhooks/using-webhooks/best-practices-for-using-webhooks
     dotenv().ok();
     //TODO: print a list of missing and neccesary vars and then panic!
+    //TODO: pass env vars or add env vars to a global one
     for var in EXPECTED_ENV_VARS {
         env::var(var).expect(var);
     }
@@ -64,32 +68,27 @@ async fn main() {
     //axum resource for whitelisting https://docs.rs/axum/latest/axum/struct.Router.html#method.into_make_service_with_connect_info
     let addr = "0.0.0.0:3000";
     info!("Started listening on addr: {addr}");
-    let listener = tokio::net::TcpListener::bind(addr).await.unwrap();
+    let listener = TcpListener::bind(addr).await.unwrap();
     axum::serve(listener, app).await.unwrap();
 }
 
-pub async fn callback_entrypoint(
-    Query(params): Query<HashMap<String, String>>,
+async fn callback_entrypoint_impl(
+    params: HashMap<String, String>,
     headers: HeaderMap,
     payload: Bytes,
-) -> (StatusCode, String) {
+) -> Result<()> {
+    //TODO: move all here
+    //TODO: here just map err or OK value
     info!("Got a callback!");
-    let webhook_result = callback_validator(params, headers, payload).await;
-    if let Err(err) = webhook_result {
-        let err_text = format!("Found callback errors {err}");
-        error!("{err_text}");
-        return (StatusCode::BAD_REQUEST, err_text);
-    }
-    let webhook = webhook_result.unwrap();
+    let webhook = callback_validator(params, headers, payload).await?;
 
     if webhook.ref_ != WEBHOOK_OBSERVED_REF {
         let found_ref = webhook.ref_;
         info!("Found other ref \"{found_ref}\" than observed one, will stop!");
-        return (StatusCode::OK, "OK".to_string());
+        return Ok(());
     }
 
     if webhook.sender.type_ == WEBHOOK_COMMIT_TYPE_BOT {
-        //TODO: maybe move this check at the beggining
         let commit_if_sender_bot = env::var("COMMIT_WHEN_SENDER_IS_BOT")
             .unwrap()
             .parse::<bool>();
@@ -98,23 +97,29 @@ pub async fn callback_entrypoint(
         }
         if !commit_if_sender_bot.unwrap() {
             info!("Found restriction onyl to commit when the sender is User, will stop here!");
-            return (StatusCode::OK, "OK".to_string());
+            return Ok(());
         }
 
         let app_name = env::var("APP_NAME").expect("APP_NAME not found in environment variables");
         if webhook.sender.login == app_name {
             info!("The last commit was made by this bot, will ignore that one!");
-            return (StatusCode::OK, "OK".to_string());
+            return Ok(());
         }
     }
 
-    let result = increase_version(webhook).await;
-    if let Err(err) = result {
-        let err_format = format!("Found increase_version errors {err}");
-        error!("{err_format}");
-        return (StatusCode::BAD_REQUEST, err_format);
-    }
+    let result = increase_version(webhook).await?;
 
     info!("ALL GOOD");
-    (StatusCode::OK, "OK".to_string())
+    Ok(())
+}
+
+async fn callback_entrypoint(
+    Query(params): Query<HashMap<String, String>>,
+    headers: HeaderMap,
+    payload: Bytes,
+) -> (StatusCode, String) {
+    match callback_entrypoint_impl(params, headers, payload).await {
+        Ok(()) => (StatusCode::OK, "OK".to_string()),
+        Err(err) => (StatusCode::BAD_REQUEST, err.to_string()),
+    }
 }

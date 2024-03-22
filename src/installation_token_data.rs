@@ -28,6 +28,7 @@ pub struct InstallationTokenFileContent {
 }
 static FILE_NAME: &str = "tokens_data.json";
 pub async fn read_file() -> Result<InstallationTokenFileContent, String> {
+    //TODO: sync read and write
     let file_res = OpenOptions::new().read(true).open(FILE_NAME).await;
     if let Err(_) = file_res {
         return Ok(InstallationTokenFileContent {
@@ -41,7 +42,7 @@ pub async fn read_file() -> Result<InstallationTokenFileContent, String> {
             error!("Failed to read file!");
             return Err("Failed to read file!");
         }
-        return Ok(s);
+        Ok(s)
     })
     .await;
 

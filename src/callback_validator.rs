@@ -1,10 +1,11 @@
+use crate::{app_errors::AppErrors, webhook_data::WebWebHook};
+use anyhow::{bail, ensure, Result};
+use axum::{body::Bytes, http::HeaderMap};
 use hex;
 use hmac::{Hmac, Mac};
 use sha2::Sha256;
 use std::collections::HashMap;
 use std::env;
-use axum::{body::Bytes, http::HeaderMap};
-use crate::{webhook_data::WebWebHook, worker::increase_version};
 
 type HmacSha256 = Hmac<Sha256>;
 
@@ -19,74 +20,82 @@ static EXPECTED_CALLBACK_HEADERS: [&str; 8] = [
     "X-GitHub-Hook-Installation-Target-ID",
 ];
 
-static EXPECTED_HEADERS_STARTING_VALUES: [(&'static str, &'static str); 3] = [
-    ("X-Hub-Signature-256", "sha256="),
-    ("X-Hub-Signature", "sha1="),
-    ("User-Agent", "GitHub-Hookshot/"),
-];
-
-static EXPECTED_HEADERS_INTEGER_VALUES: [&str; 2] =
-    ["X-GitHub-Hook-ID", "X-GitHub-Hook-Installation-Target-ID"];
-
-async fn validate_headers(headers: &HeaderMap) -> Result<(), String> {
+async fn validate_headers_and_get_signature_256(headers: &HeaderMap) -> Result<String> {
+    let mut signature_256: String = String::new();
     for header in EXPECTED_CALLBACK_HEADERS {
         let entry = headers.get(header);
-        if entry.is_none() {
-            return Err(format!("Missing header {}!", header));
-        }
-        if entry.unwrap().to_str().is_err() {
-            return Err(format!("Header {} is not ASCII!", header));
-        }
-    }
-    for expected_value in EXPECTED_HEADERS_STARTING_VALUES {
-        let value_data = headers.get(expected_value.0).unwrap().to_str().unwrap();
-        if !value_data.starts_with(expected_value.1) {
-            let header_name = expected_value.0;
-            let expected_val = expected_value.1;
-            return Err(format!(
-                "Header{header_name}-{value_data} does not start with value {expected_val}!"
-            ));
-        }
-    }
+        let Some(entry) = entry else {
+            bail!(AppErrors::MissingHeader(header));
+        };
 
-    for expected_integer in EXPECTED_HEADERS_INTEGER_VALUES {
-        let value_data = headers.get(expected_integer).unwrap().to_str().unwrap();
-        if value_data.parse::<u128>().is_err() {
-            return Err(format!(
-                "Header{expected_integer}-{value_data} does is a valid integer!"
-            ));
+        let Ok(val) = entry.to_str() else {
+            bail!(AppErrors::HeaderInvalidFormatError(header));
+        };
+
+        match header {
+            "X-Hub-Signature-256" => {
+                ensure!(
+                    val.starts_with("sha256="),
+                    AppErrors::HeaderParsingError(header)
+                );
+                signature_256 = val.to_string();
+            }
+            "X-Hub-Signature" => ensure!(
+                val.starts_with("sha1="),
+                AppErrors::HeaderParsingError(header)
+            ),
+            "User-Agent" => ensure!(
+                val.starts_with("GitHub-Hookshot/"),
+                AppErrors::HeaderParsingError(header)
+            ),
+            "X-GitHub-Hook-ID" => ensure!(
+                val.parse::<u32>().is_ok(),
+                AppErrors::HeaderParsingError(header)
+            ),
+            "X-GitHub-Hook-Installation-Target-ID" => ensure!(
+                val.parse::<u32>().is_ok(),
+                AppErrors::HeaderParsingError(header)
+            ),
+            _ => {}
         }
     }
-
-    Ok(())
+    Ok(signature_256)
 }
 
-async fn verify_signature(payload_body: &Bytes, signature: &str) -> Result<(), String> {
+async fn verify_signature(payload_body: &Bytes, signature: &str) -> Result<()> {
+    ensure!(
+        signature.len() >= 10,
+        AppErrors::HeaderParsingError("X-Hub-Signature-256")
+    );
+
     let signature_chracters = &signature[7..];
     let signature_size = signature_chracters.len();
-    if signature_size % 2 != 0 {
-        return Err("Invalid signature_chracters".to_string());
-    }
+    ensure!(
+        signature_size % 2 == 0,
+        AppErrors::SignatureError("Invalid header size")
+    );
 
-    let expected_signatures = hex::decode(signature_chracters);
-    if let Err(_) = expected_signatures {
-        return Err("Failed to decode signature hash".to_string());
-    }
-    let expected_signature = expected_signatures.unwrap();
+    let expected_signature = hex::decode(signature_chracters);
+    let Ok(expected_signature) = expected_signature else {
+        bail!(AppErrors::SignatureError("Invalid expected signature"));
+    };
 
     let secret_token =
         env::var("CALLBACK_SECRET_TOKEN").expect("SECRET_TOKEN not found in environment variables");
     let hash_obj = HmacSha256::new_from_slice(secret_token.as_bytes());
-    if let Err(err) = hash_obj {
-        return Err(err.to_string());
-    }
-    let mut hash_obj = hash_obj.unwrap();
+
+    let Ok(mut hash_obj) = hash_obj else {
+        bail!(AppErrors::SignatureError("Invalid hash obj"));
+    };
+
     hash_obj.update(payload_body);
 
-    let result = hash_obj.finalize().into_bytes().to_vec();
-    if result != expected_signature {
-        return Err("Signature does not match!".to_string());
-    }
+    let result = hash_obj.finalize().into_bytes();
+    let result = result.as_slice();
+    ensure!(
+        result == expected_signature,
+        AppErrors::SignatureError("Signatures do not match")
+    );
     Ok(())
 }
 
@@ -94,24 +103,17 @@ pub async fn callback_validator(
     query_params: HashMap<String, String>,
     headers: HeaderMap,
     payload: Bytes,
-) -> Result<WebWebHook, String> {
-    if !query_params.is_empty() {
-        let params_count = query_params.len();
-        return Err(format!("Found {params_count} instead of 0!"));
-    }
-    validate_headers(&headers).await?;
-    let signature_header = headers
-        .get("X-Hub-Signature-256")
-        .unwrap()
-        .to_str()
-        .unwrap();
+) -> Result<WebWebHook> {
+    ensure!(
+        query_params.is_empty(),
+        AppErrors::TooManyQueryParams(query_params.len())
+    );
+    let signature_header = validate_headers_and_get_signature_256(&headers).await?;
+    verify_signature(&payload, signature_header.as_str()).await?;
 
-    verify_signature(&payload, signature_header).await?;
+    let Ok(webhook) = serde_json::from_slice(&payload) else {
+        bail!(AppErrors::InvalidPayload());
+    };
 
-    let webhook: Result<WebWebHook, serde_json::Error> = serde_json::from_slice(&payload);
-    if let Err(err) = webhook {
-        return Err(format!("Found at parsing json: {err}!"));
-    }
-
-    Ok(webhook.unwrap())
+    Ok(webhook)
 }

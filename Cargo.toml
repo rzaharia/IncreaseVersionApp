@@ -18,7 +18,8 @@ dotenv_codegen = "0.15.0"
 hmac = "0.12.1"
 sha2 = "0.10.8"
 hex = "0.4.3"
+anyhow = "1.0"
+thiserror = "1.0.58"
 
 [dev-dependencies]
-anyhow = "1.0"
 httpc-test = "0.1.1"
