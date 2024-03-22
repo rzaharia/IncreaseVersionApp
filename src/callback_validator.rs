@@ -1,6 +1,13 @@
-use std::{collections::HashMap, fmt::format};
+use hex;
+use hmac::{digest::typenum::Len, Hmac, Mac};
+use sha2::Sha256;
+use std::collections::HashMap;
+use std::env;
+
+type HmacSha256 = Hmac<Sha256>;
 
 use axum::{
+    body::Bytes,
     http::{HeaderMap, StatusCode},
     Json,
 };
@@ -25,10 +32,8 @@ static EXPECTED_HEADERS_STARTING_VALUES: [(&'static str, &'static str); 3] = [
     ("User-Agent", "GitHub-Hookshot/"),
 ];
 
-static EXPECTED_HEADERS_INTEGER_VALUES: [&str;2] = [
-    "X-GitHub-Hook-ID",
-    "X-GitHub-Hook-Installation-Target-ID"
-];
+static EXPECTED_HEADERS_INTEGER_VALUES: [&str; 2] =
+    ["X-GitHub-Hook-ID", "X-GitHub-Hook-Installation-Target-ID"];
 
 pub struct WebHookOK {}
 
@@ -42,35 +47,76 @@ async fn validate_headers(headers: &HeaderMap) -> Result<(), String> {
             return Err(format!("Header {} is not ASCII!", header));
         }
     }
-    for expected_value in EXPECTED_HEADERS_STARTING_VALUES{
+    for expected_value in EXPECTED_HEADERS_STARTING_VALUES {
         let value_data = headers.get(expected_value.0).unwrap().to_str().unwrap();
-        if !value_data.starts_with(expected_value.1){
+        if !value_data.starts_with(expected_value.1) {
             let header_name = expected_value.0;
             let expected_val = expected_value.1;
-            return Err(format!("Header{header_name}-{value_data} does not start with value {expected_val}!"));
+            return Err(format!(
+                "Header{header_name}-{value_data} does not start with value {expected_val}!"
+            ));
         }
     }
 
     for expected_integer in EXPECTED_HEADERS_INTEGER_VALUES {
         let value_data = headers.get(expected_integer).unwrap().to_str().unwrap();
-        if value_data.parse::<u128>().is_err(){
-            return Err(format!("Header{expected_integer}-{value_data} does is a valid integer!"));
+        if value_data.parse::<u128>().is_err() {
+            return Err(format!(
+                "Header{expected_integer}-{value_data} does is a valid integer!"
+            ));
         }
     }
-    
+
+    Ok(())
+}
+
+async fn verify_signature(payload_body: &Bytes, signature: &str) -> Result<(), String> {
+    let signature_chracters = &signature[7..];
+    let signature_size = signature_chracters.len();
+    if signature_size % 2 != 0 {
+        return Err("Invalid signature_chracters".to_string());
+    }
+
+    let expected_signatures = hex::decode(signature_chracters);
+    if let Err(_) = expected_signatures {
+        return Err("Failed to decode signature hash".to_string());
+    }
+    let expected_signature = expected_signatures.unwrap();
+
+    let secret_token =
+        env::var("CALLBACK_SECRET_TOKEN").expect("SECRET_TOKEN not found in environment variables");
+    let hash_obj = HmacSha256::new_from_slice(secret_token.as_bytes());
+    if let Err(err) = hash_obj {
+        return Err(err.to_string());
+    }
+    let mut hash_obj = hash_obj.unwrap();
+    hash_obj.update(payload_body);
+
+    let result = hash_obj.finalize().into_bytes().to_vec();
+    if result != expected_signature {
+        return Err("Signature does not match!".to_string());
+    }
     Ok(())
 }
 
 pub async fn callback_validator(
     query_params: HashMap<String, String>,
     headers: HeaderMap,
-    payload: Value,
+    payload: Bytes,
 ) -> Result<WebHookOK, String> {
     if !query_params.is_empty() {
         let params_count = query_params.len();
         return Err(format!("Found {params_count} instead of 0!"));
     }
     validate_headers(&headers).await?;
+    let signature_header = headers
+        .get("X-Hub-Signature-256")
+        .unwrap()
+        .to_str()
+        .unwrap();
+
+    verify_signature(&payload, signature_header).await?;
+
     // let create_user: CreateUser = match serde_json::from_value(payload) {
     //     Ok(user) => user,
     //     Err(_) => {

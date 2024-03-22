@@ -1,17 +1,18 @@
 mod callback_validator;
+extern crate dotenv;
+#[macro_use(dotenv)]
+extern crate dotenv_codegen;
 use std::collections::HashMap;
 
 use axum::{
-    extract::Query,
-    http::{HeaderMap, StatusCode},
-    routing::post,
-    Json, Router,
+    body::Bytes, extract::Query, http::{HeaderMap, StatusCode}, routing::post, Json, Router
 };
 use log::{error, info};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use callback_validator::callback_validator;
+use dotenv::dotenv;
 
 struct SimpleLogger;
 
@@ -37,6 +38,8 @@ pub fn init_logger() -> Result<(), log::SetLoggerError> {
 
 #[tokio::main]
 async fn main() {
+    //TODO: follow best practices https://docs.github.com/en/webhooks/using-webhooks/best-practices-for-using-webhooks
+    dotenv().ok();
     //TODO: replace log with trace
     init_logger().unwrap();
     let app = Router::new().route("/callback", post(callback_entrypoint));
@@ -52,19 +55,13 @@ async fn main() {
 pub async fn callback_entrypoint(
     Query(params): Query<HashMap<String, String>>,
     headers: HeaderMap,
-    Json(payload): Json<Value>,
-) -> (StatusCode, Json<User>) {
+    payload: Bytes,
+) -> StatusCode {
     info!("Got a callback!");
     let res = callback_validator(params, headers, payload).await;
     if let Err(err) = res {
         error!("Found error {err}");
-        return (
-            StatusCode::CREATED,
-            Json(User {
-                id: 2,
-                username: "asd".to_string(),
-            }),
-        );
+        return StatusCode::BAD_REQUEST;
     }
     // let create_user: CreateUser = match serde_json::from_value(payload) {
     //     Ok(user) => user,
@@ -79,13 +76,7 @@ pub async fn callback_entrypoint(
     //     }
     // };
     info!("ALL GOOD");
-    (
-        StatusCode::CREATED,
-        Json(User {
-            id: 2,
-            username: "asd".to_string(),
-        }),
-    )
+    StatusCode::OK
 }
 
 #[derive(Deserialize)]
