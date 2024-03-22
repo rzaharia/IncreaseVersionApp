@@ -77,8 +77,6 @@ async fn callback_entrypoint_impl(
     headers: HeaderMap,
     payload: Bytes,
 ) -> Result<()> {
-    //TODO: move all here
-    //TODO: here just map err or OK value
     info!("Got a callback!");
     let webhook = callback_validator(params, headers, payload).await?;
 
@@ -107,7 +105,7 @@ async fn callback_entrypoint_impl(
         }
     }
 
-    let result = increase_version(webhook).await?;
+    increase_version(webhook).await?;
 
     info!("ALL GOOD");
     Ok(())
