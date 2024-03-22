@@ -1,67 +1,67 @@
-#![allow(unused)]
+#![allow(dead_code)]
 use serde::Deserialize;
 
 #[derive(Deserialize)]
 pub struct WebHookRepositoryOwner {
-    id: u128,
-    name: String,
-    email: String,
+    pub id: u128,
+    pub name: String,
+    pub email: String,
 }
 
 #[derive(Deserialize)]
 pub struct WebHookRepository {
-    id: u128,
-    name: String,
-    full_name: String,
-    owner: WebHookRepositoryOwner,
+    pub id: u128,
+    pub name: String,
+    pub full_name: String,
+    pub owner: WebHookRepositoryOwner,
 }
 
 #[derive(Deserialize)]
 pub struct WebHookPusher {
-    name: String,
-    email: String,
+    pub name: String,
+    pub email: String,
 }
 
 #[derive(Deserialize)]
 pub struct WebHookSender {
-    login: String,
-    id: u128,
+    pub login: String,
+    pub id: u128,
     #[serde(rename = "type")]
-    type_: String,
+    pub type_: String,
 }
 
 #[derive(Deserialize)]
 pub struct WebHookInstallation {
-    id: u128,
-    node_id: String,
+    pub id: u128,
+    pub node_id: String,
 }
 
 #[derive(Deserialize)]
 pub struct WebHookCommitUser {
-    name: String,
-    email: String,
-    username: String,
+    pub name: String,
+    pub email: String,
+    pub username: String,
 }
 
 #[derive(Deserialize)]
 pub struct WebHookCommit {
-    id: String,
-    tree_id: String,
-    message: String,
-    author: WebHookCommitUser,
-    committer: WebHookCommitUser,
-    added: Vec<String>,
-    removed: Vec<String>,
-    modified: Vec<String>,
+    pub id: String,
+    pub tree_id: String,
+    pub message: String,
+    pub author: WebHookCommitUser,
+    pub committer: WebHookCommitUser,
+    pub added: Vec<String>,
+    pub removed: Vec<String>,
+    pub modified: Vec<String>,
 }
 
 #[derive(Deserialize)]
 pub struct WebWebHook {
     #[serde(rename = "ref")]
-    ref_: String,
-    repository: WebHookRepository,
-    pusher: WebHookPusher,
-    sender: WebHookSender,
-    installation: WebHookInstallation,
-    commits: Vec<WebHookCommit>,
+    pub ref_: String,
+    pub repository: WebHookRepository,
+    pub pusher: WebHookPusher,
+    pub sender: WebHookSender,
+    pub installation: WebHookInstallation,
+    pub commits: Vec<WebHookCommit>,
 }

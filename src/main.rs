@@ -1,8 +1,6 @@
 mod callback_validator;
 mod webhook_data;
 extern crate dotenv;
-use std::collections::HashMap;
-
 use axum::{
     body::Bytes,
     extract::Query,
@@ -10,10 +8,15 @@ use axum::{
     routing::post,
     Router,
 };
-use log::{error, info};
-
 use callback_validator::callback_validator;
 use dotenv::dotenv;
+use log::{error, info};
+use core::panic;
+use std::{collections::HashMap, env};
+
+static WEBHOOK_OBSERVED_REF: &str = "refs/heads/main";
+static WEBHOOK_COMMIT_TYPE_BOT: &str = "Bot";
+static EXPECTED_ENV_VARS: [&str; 3] = ["CALLBACK_SECRET_TOKEN", "APP_NAME","COMMIT_WHEN_SENDER_IS_BOT"];
 
 struct SimpleLogger;
 
@@ -41,6 +44,10 @@ pub fn init_logger() -> Result<(), log::SetLoggerError> {
 async fn main() {
     //TODO: follow best practices https://docs.github.com/en/webhooks/using-webhooks/best-practices-for-using-webhooks
     dotenv().ok();
+    //TODO: print a list of missing and neccesary vars and then panic!
+    for var in EXPECTED_ENV_VARS{
+        env::var(var).expect(var);
+    }
     //TODO: replace log with trace
     init_logger().unwrap();
     let app = Router::new().route("/callback", post(callback_entrypoint));
@@ -65,6 +72,31 @@ pub async fn callback_entrypoint(
         return StatusCode::BAD_REQUEST;
     }
     let webhook = webhook_result.unwrap();
+
+    if webhook.ref_ != WEBHOOK_OBSERVED_REF {
+        let found_ref = webhook.ref_;
+        info!("Found other ref \"{found_ref}\" than observed one, will stop!");
+        return StatusCode::OK;
+    }
+
+    if webhook.sender.type_ == WEBHOOK_COMMIT_TYPE_BOT {
+        //TODO: mayeb move this check at the beggining
+        let commit_if_sender_bot = env::var("COMMIT_WHEN_SENDER_IS_BOT").unwrap().parse::<bool>();
+        if let Err(err) = commit_if_sender_bot {
+            panic!("Invalid var COMMIT_WHEN_SENDER_IS_BOT: {err}");
+        }
+        if !commit_if_sender_bot.unwrap(){
+            info!("Found restriction onyl to commit when the sender is User, will stop here!");
+            return StatusCode::OK;
+        }
+
+        let app_name = env::var("APP_NAME").expect("APP_NAME not found in environment variables");
+        if webhook.sender.login == app_name {
+            info!("The last commit was made by this bot, will ignore that one!");
+            return StatusCode::OK;
+        }
+    }
+
     info!("ALL GOOD");
     StatusCode::OK
 }
