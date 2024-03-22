@@ -1,5 +1,7 @@
 mod callback_validator;
+mod installation_token_data;
 mod webhook_data;
+mod worker;
 extern crate dotenv;
 use axum::{
     body::Bytes,
@@ -9,14 +11,20 @@ use axum::{
     Router,
 };
 use callback_validator::callback_validator;
+use core::panic;
 use dotenv::dotenv;
 use log::{error, info};
-use core::panic;
-use std::{collections::HashMap, env};
+use std::{collections::HashMap, env, fmt::format};
+
+use crate::worker::increase_version;
 
 static WEBHOOK_OBSERVED_REF: &str = "refs/heads/main";
 static WEBHOOK_COMMIT_TYPE_BOT: &str = "Bot";
-static EXPECTED_ENV_VARS: [&str; 3] = ["CALLBACK_SECRET_TOKEN", "APP_NAME","COMMIT_WHEN_SENDER_IS_BOT"];
+static EXPECTED_ENV_VARS: [&str; 3] = [
+    "CALLBACK_SECRET_TOKEN",
+    "APP_NAME",
+    "COMMIT_WHEN_SENDER_IS_BOT",
+];
 
 struct SimpleLogger;
 
@@ -45,7 +53,7 @@ async fn main() {
     //TODO: follow best practices https://docs.github.com/en/webhooks/using-webhooks/best-practices-for-using-webhooks
     dotenv().ok();
     //TODO: print a list of missing and neccesary vars and then panic!
-    for var in EXPECTED_ENV_VARS{
+    for var in EXPECTED_ENV_VARS {
         env::var(var).expect(var);
     }
     //TODO: replace log with trace
@@ -64,39 +72,49 @@ pub async fn callback_entrypoint(
     Query(params): Query<HashMap<String, String>>,
     headers: HeaderMap,
     payload: Bytes,
-) -> StatusCode {
+) -> (StatusCode, String) {
     info!("Got a callback!");
     let webhook_result = callback_validator(params, headers, payload).await;
     if let Err(err) = webhook_result {
-        error!("Found error {err}");
-        return StatusCode::BAD_REQUEST;
+        let err_text = format!("Found callback errors {err}");
+        error!("{err_text}");
+        return (StatusCode::BAD_REQUEST, err_text);
     }
     let webhook = webhook_result.unwrap();
 
     if webhook.ref_ != WEBHOOK_OBSERVED_REF {
         let found_ref = webhook.ref_;
         info!("Found other ref \"{found_ref}\" than observed one, will stop!");
-        return StatusCode::OK;
+        return (StatusCode::OK, "OK".to_string());
     }
 
     if webhook.sender.type_ == WEBHOOK_COMMIT_TYPE_BOT {
-        //TODO: mayeb move this check at the beggining
-        let commit_if_sender_bot = env::var("COMMIT_WHEN_SENDER_IS_BOT").unwrap().parse::<bool>();
+        //TODO: maybe move this check at the beggining
+        let commit_if_sender_bot = env::var("COMMIT_WHEN_SENDER_IS_BOT")
+            .unwrap()
+            .parse::<bool>();
         if let Err(err) = commit_if_sender_bot {
             panic!("Invalid var COMMIT_WHEN_SENDER_IS_BOT: {err}");
         }
-        if !commit_if_sender_bot.unwrap(){
+        if !commit_if_sender_bot.unwrap() {
             info!("Found restriction onyl to commit when the sender is User, will stop here!");
-            return StatusCode::OK;
+            return (StatusCode::OK, "OK".to_string());
         }
 
         let app_name = env::var("APP_NAME").expect("APP_NAME not found in environment variables");
         if webhook.sender.login == app_name {
             info!("The last commit was made by this bot, will ignore that one!");
-            return StatusCode::OK;
+            return (StatusCode::OK, "OK".to_string());
         }
     }
 
+    let result = increase_version(webhook).await;
+    if let Err(err) = result {
+        let err_format = format!("Found increase_version errors {err}");
+        error!("{err_format}");
+        return (StatusCode::BAD_REQUEST, err_format);
+    }
+
     info!("ALL GOOD");
-    StatusCode::OK
+    (StatusCode::OK, "OK".to_string())
 }
