@@ -3,8 +3,9 @@ mod callback_validator;
 mod installation_token_data;
 mod webhook_data;
 mod worker;
+mod app_config;
 extern crate dotenv;
-use anyhow::Result;
+use anyhow::{bail, Result};
 use axum::{
     body::Bytes,
     extract::Query,
@@ -15,19 +16,10 @@ use axum::{
 use callback_validator::callback_validator;
 use core::panic;
 use dotenv::dotenv;
-use log::{error, info};
+use log::info;
 use std::{collections::HashMap, env};
 use tokio::net::TcpListener;
-
-use crate::worker::increase_version;
-
-static WEBHOOK_OBSERVED_REF: &str = "refs/heads/main";
-static WEBHOOK_COMMIT_TYPE_BOT: &str = "Bot";
-static EXPECTED_ENV_VARS: [&str; 3] = [
-    "CALLBACK_SECRET_TOKEN",
-    "APP_NAME",
-    "COMMIT_WHEN_SENDER_IS_BOT",
-];
+use crate::{app_config::AppEnvVars, app_errors::AppErrors, worker::increase_version};
 
 struct SimpleLogger;
 
@@ -55,11 +47,14 @@ pub fn init_logger() -> Result<(), log::SetLoggerError> {
 async fn main() {
     //TODO: follow best practices https://docs.github.com/en/webhooks/using-webhooks/best-practices-for-using-webhooks
     dotenv().ok();
-    //TODO: print a list of missing and neccesary vars and then panic!
-    //TODO: pass env vars or add env vars to a global one
-    for var in EXPECTED_ENV_VARS {
-        env::var(var).expect(var);
+    let env_vars_res = AppEnvVars::new();
+    if let Err(err) = env_vars_res {
+        let missing_vars = err.to_string();
+        panic!("Missing enviroment variables: {missing_vars}");
     }
+    let env_vars = env_vars_res.unwrap();
+    //TODO: pass env vars or add env vars to a global one
+    
     //TODO: replace log with trace
     init_logger().unwrap();
     let app = Router::new().route("/callback", post(callback_entrypoint));

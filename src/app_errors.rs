@@ -2,6 +2,8 @@ use thiserror::Error;
 
 #[derive(Error, Debug)]
 pub enum AppErrors<'a> {
+    #[error("Missing enviroment variables: {0}")]
+    MissingEvironmentVariables(String),
     #[error("Too many query params: `{0}`, expected 0")]
     TooManyQueryParams(usize),
     #[error("Missing header: `{0}`")]
