@@ -32,7 +32,7 @@ impl AppEnvVars {
                 match var {
                     "CALLBACK_SECRET_TOKEN" => result.callback_token = value,
                     "APP_NAME" => result.app_name = value,
-                    "CALLBACK_SECRET_TOKEN" => {
+                    "COMMIT_WHEN_SENDER_IS_BOT" => {
                         if let Ok(bool_value) = value.parse::<bool>() {
                             result.commit_when_sender_is_bot = bool_value;
                         } else {
