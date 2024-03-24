@@ -4,6 +4,8 @@ use thiserror::Error;
 pub enum AppErrors<'a> {
     #[error("Missing enviroment variables: {0}")]
     MissingEvironmentVariables(String),
+    #[error("Failed parsing variable `{0}` with reason: {1}")]
+    InvalidEvironmentVariable(String, &'a str),
     #[error("Too many query params: `{0}`, expected 0")]
     TooManyQueryParams(usize),
     #[error("Missing header: `{0}`")]
@@ -20,6 +22,8 @@ pub enum AppErrors<'a> {
     InvalidDeserializationInstallationFile(String),
     #[error("Could save installation file: `{0}`")]
     FailedToSaveInstallationFile(String),
+    #[error("Could not process JWT: `{0}`")]
+    FailedToProcessJWD(&'a str),
     //#[error("invalid header (expected {expected:?}, found {found:?})")]
     //InvalidHeader { expected: String, found: String },
     //#[error("unknown data store error")]

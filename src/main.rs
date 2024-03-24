@@ -53,7 +53,7 @@ async fn main() {
     let env_vars_res = AppEnvVars::new();
     if let Err(err) = env_vars_res {
         let missing_vars = err.to_string();
-        panic!("Missing enviroment variables: {missing_vars}");
+        panic!("Invalid environment variables: {missing_vars}");
     }
     let env_vars = env_vars_res.unwrap();
 
@@ -98,7 +98,7 @@ async fn callback_entrypoint_impl(
         }
     }
 
-    increase_version(webhook).await?;
+    increase_version(&env_vars, webhook).await?;
 
     info!("ALL GOOD");
     Ok(())

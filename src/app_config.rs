@@ -1,31 +1,38 @@
-use std::env;
+use std::{env, fs};
 
-use anyhow::{bail, Result};
+use anyhow::{bail, ensure, Result};
 
 use crate::app_errors::AppErrors;
 pub static WEBHOOK_OBSERVED_REF: &str = "refs/heads/main";
 pub static WEBHOOK_COMMIT_TYPE_BOT: &str = "Bot";
 
-static EXPECTED_ENV_VARS: [&str; 3] = [
+static EXPECTED_ENV_VARS: [&str; 4] = [
     "CALLBACK_SECRET_TOKEN",
     "APP_NAME",
     "COMMIT_WHEN_SENDER_IS_BOT",
+    "PRIVATE_KEY_FILE_LOC",
 ];
 
-#[derive(Clone)] //needed by axum state
+#[derive(Clone, Default)] //Clone needed by axum state
 pub struct AppEnvVars {
     pub callback_token: String,
     pub app_name: String,
     pub commit_when_sender_is_bot: bool,
+    pub private_signature: String,
+}
+
+fn try_read_file(file_loc: &String) -> Result<String> {
+    let data = fs::read_to_string(file_loc)?;
+    ensure!(
+        !data.is_empty(),
+        AppErrors::InvalidEvironmentVariable(file_loc.to_string(), "file empty")
+    );
+    Ok(data)
 }
 
 impl AppEnvVars {
     pub fn new() -> Result<AppEnvVars> {
-        let mut result = AppEnvVars {
-            app_name: String::new(),
-            callback_token: String::new(),
-            commit_when_sender_is_bot: false,
-        };
+        let mut result = AppEnvVars::default();
         let mut missing_vars: Vec<&str> = Vec::with_capacity(EXPECTED_ENV_VARS.len());
         for var in EXPECTED_ENV_VARS {
             if let Ok(value) = env::var(var) {
@@ -36,8 +43,20 @@ impl AppEnvVars {
                         if let Ok(bool_value) = value.parse::<bool>() {
                             result.commit_when_sender_is_bot = bool_value;
                         } else {
-                            missing_vars.push(var);
+                            bail!(AppErrors::InvalidEvironmentVariable(
+                                var.to_string(),
+                                "invalid value"
+                            ));
                         }
+                    }
+                    "PRIVATE_KEY_FILE_LOC" => {
+                        let Ok(signature) = try_read_file(&value) else {
+                            bail!(AppErrors::InvalidEvironmentVariable(
+                                var.to_string(),
+                                "could not read file"
+                            ));
+                        };
+                        result.private_signature = signature;
                     }
                     _ => {}
                 }
