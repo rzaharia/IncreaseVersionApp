@@ -31,7 +31,7 @@ async fn create_jwt(env_vars: &AppEnvVars) -> Result<String> {
     };
     let exp = exp.timestamp();
     let payload = Payload {
-        iss: 100,
+        iss: env_vars.app_id,
         iat: iat,
         exp: exp,
     };
