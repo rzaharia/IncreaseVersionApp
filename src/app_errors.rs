@@ -23,7 +23,9 @@ pub enum AppErrors<'a> {
     #[error("Could save installation file: `{0}`")]
     FailedToSaveInstallationFile(String),
     #[error("Could not process JWT: `{0}`")]
-    FailedToProcessJWD(&'a str),
+    FailedToProcessJWD(String),
+    #[error("Found problems during API call: `{0}`")]
+    ApiFailure(String),
     //#[error("invalid header (expected {expected:?}, found {found:?})")]
     //InvalidHeader { expected: String, found: String },
     //#[error("unknown data store error")]

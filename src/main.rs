@@ -1,3 +1,4 @@
+mod app_apis;
 mod app_config;
 mod app_errors;
 mod callback_validator;
@@ -52,8 +53,8 @@ async fn main() {
     dotenv().ok();
     let env_vars_res = AppEnvVars::new();
     if let Err(err) = env_vars_res {
-        let missing_vars = err.to_string();
-        panic!("Invalid environment variables: {missing_vars}");
+        let err_string = err.to_string();
+        panic!("Invalid environment variables: {err_string}");
     }
     let env_vars = env_vars_res.unwrap();
 
@@ -112,6 +113,9 @@ async fn callback_entrypoint(
 ) -> (StatusCode, String) {
     match callback_entrypoint_impl(env_vars, params, headers, payload).await {
         Ok(()) => (StatusCode::OK, "OK".to_string()),
-        Err(err) => (StatusCode::BAD_REQUEST, err.to_string()),
+        Err(err) => {
+            info!("Failed: {}", err.to_string());
+            (StatusCode::BAD_REQUEST, err.to_string())
+        }
     }
 }
