@@ -1,14 +1,18 @@
+mod app_config;
 mod app_errors;
 mod callback_validator;
 mod installation_token_data;
 mod webhook_data;
 mod worker;
-mod app_config;
 extern crate dotenv;
-use anyhow::{bail, Result};
+use crate::{
+    app_config::{AppEnvVars, WEBHOOK_COMMIT_TYPE_BOT, WEBHOOK_OBSERVED_REF},
+    worker::increase_version,
+};
+use anyhow::Result;
 use axum::{
     body::Bytes,
-    extract::Query,
+    extract::{Query, State},
     http::{HeaderMap, StatusCode},
     routing::post,
     Router,
@@ -17,9 +21,8 @@ use callback_validator::callback_validator;
 use core::panic;
 use dotenv::dotenv;
 use log::info;
-use std::{collections::HashMap, env};
+use std::collections::HashMap;
 use tokio::net::TcpListener;
-use crate::{app_config::AppEnvVars, app_errors::AppErrors, worker::increase_version};
 
 struct SimpleLogger;
 
@@ -53,11 +56,12 @@ async fn main() {
         panic!("Missing enviroment variables: {missing_vars}");
     }
     let env_vars = env_vars_res.unwrap();
-    //TODO: pass env vars or add env vars to a global one
-    
+
     //TODO: replace log with trace
     init_logger().unwrap();
-    let app = Router::new().route("/callback", post(callback_entrypoint));
+    let app = Router::new()
+        .route("/callback", post(callback_entrypoint))
+        .with_state(env_vars);
 
     //add ip whitelisting https://api.github.com/meta
     //axum resource for whitelisting https://docs.rs/axum/latest/axum/struct.Router.html#method.into_make_service_with_connect_info
@@ -68,12 +72,13 @@ async fn main() {
 }
 
 async fn callback_entrypoint_impl(
+    env_vars: AppEnvVars,
     params: HashMap<String, String>,
     headers: HeaderMap,
     payload: Bytes,
 ) -> Result<()> {
     info!("Got a callback!");
-    let webhook = callback_validator(params, headers, payload).await?;
+    let webhook = callback_validator(&env_vars, params, headers, payload).await?;
 
     if webhook.ref_ != WEBHOOK_OBSERVED_REF {
         let found_ref = webhook.ref_;
@@ -82,19 +87,12 @@ async fn callback_entrypoint_impl(
     }
 
     if webhook.sender.type_ == WEBHOOK_COMMIT_TYPE_BOT {
-        let commit_if_sender_bot = env::var("COMMIT_WHEN_SENDER_IS_BOT")
-            .unwrap()
-            .parse::<bool>();
-        if let Err(err) = commit_if_sender_bot {
-            panic!("Invalid var COMMIT_WHEN_SENDER_IS_BOT: {err}");
-        }
-        if !commit_if_sender_bot.unwrap() {
+        if !env_vars.commit_when_sender_is_bot {
             info!("Found restriction onyl to commit when the sender is User, will stop here!");
             return Ok(());
         }
 
-        let app_name = env::var("APP_NAME").expect("APP_NAME not found in environment variables");
-        if webhook.sender.login == app_name {
+        if webhook.sender.login == env_vars.app_name {
             info!("The last commit was made by this bot, will ignore that one!");
             return Ok(());
         }
@@ -107,11 +105,12 @@ async fn callback_entrypoint_impl(
 }
 
 async fn callback_entrypoint(
+    State(env_vars): State<AppEnvVars>,
     Query(params): Query<HashMap<String, String>>,
     headers: HeaderMap,
     payload: Bytes,
 ) -> (StatusCode, String) {
-    match callback_entrypoint_impl(params, headers, payload).await {
+    match callback_entrypoint_impl(env_vars, params, headers, payload).await {
         Ok(()) => (StatusCode::OK, "OK".to_string()),
         Err(err) => (StatusCode::BAD_REQUEST, err.to_string()),
     }

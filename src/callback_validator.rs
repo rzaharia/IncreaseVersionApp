@@ -1,3 +1,4 @@
+use crate::app_config::AppEnvVars;
 use crate::{app_errors::AppErrors, webhook_data::WebWebHook};
 use anyhow::{bail, ensure, Result};
 use axum::{body::Bytes, http::HeaderMap};
@@ -5,7 +6,6 @@ use hex;
 use hmac::{Hmac, Mac};
 use sha2::Sha256;
 use std::collections::HashMap;
-use std::env;
 
 type HmacSha256 = Hmac<Sha256>;
 
@@ -62,7 +62,11 @@ async fn validate_headers_and_get_signature_256(headers: &HeaderMap) -> Result<S
     Ok(signature_256)
 }
 
-async fn verify_signature(payload_body: &Bytes, signature: &str) -> Result<()> {
+async fn verify_signature(
+    payload_body: &Bytes,
+    signature: &str,
+    secret_token: &String,
+) -> Result<()> {
     ensure!(
         signature.len() >= 10,
         AppErrors::HeaderParsingError("X-Hub-Signature-256")
@@ -80,8 +84,6 @@ async fn verify_signature(payload_body: &Bytes, signature: &str) -> Result<()> {
         bail!(AppErrors::SignatureError("Invalid expected signature"));
     };
 
-    let secret_token =
-        env::var("CALLBACK_SECRET_TOKEN").expect("SECRET_TOKEN not found in environment variables");
     let hash_obj = HmacSha256::new_from_slice(secret_token.as_bytes());
 
     let Ok(mut hash_obj) = hash_obj else {
@@ -100,6 +102,7 @@ async fn verify_signature(payload_body: &Bytes, signature: &str) -> Result<()> {
 }
 
 pub async fn callback_validator(
+    env_vars: &AppEnvVars,
     query_params: HashMap<String, String>,
     headers: HeaderMap,
     payload: Bytes,
@@ -109,7 +112,12 @@ pub async fn callback_validator(
         AppErrors::TooManyQueryParams(query_params.len())
     );
     let signature_header = validate_headers_and_get_signature_256(&headers).await?;
-    verify_signature(&payload, signature_header.as_str()).await?;
+    verify_signature(
+        &payload,
+        signature_header.as_str(),
+        &env_vars.callback_token,
+    )
+    .await?;
 
     let Ok(webhook) = serde_json::from_slice(&payload) else {
         bail!(AppErrors::InvalidPayload());

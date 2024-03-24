@@ -3,8 +3,8 @@ use std::env;
 use anyhow::{bail, Result};
 
 use crate::app_errors::AppErrors;
-static WEBHOOK_OBSERVED_REF: &str = "refs/heads/main";
-static WEBHOOK_COMMIT_TYPE_BOT: &str = "Bot";
+pub static WEBHOOK_OBSERVED_REF: &str = "refs/heads/main";
+pub static WEBHOOK_COMMIT_TYPE_BOT: &str = "Bot";
 
 static EXPECTED_ENV_VARS: [&str; 3] = [
     "CALLBACK_SECRET_TOKEN",
@@ -12,6 +12,7 @@ static EXPECTED_ENV_VARS: [&str; 3] = [
     "COMMIT_WHEN_SENDER_IS_BOT",
 ];
 
+#[derive(Clone)] //needed by axum state
 pub struct AppEnvVars {
     pub callback_token: String,
     pub app_name: String,
@@ -32,9 +33,9 @@ impl AppEnvVars {
                     "CALLBACK_SECRET_TOKEN" => result.callback_token = value,
                     "APP_NAME" => result.app_name = value,
                     "CALLBACK_SECRET_TOKEN" => {
-                        if let Ok(bool_value) = value.parse::<bool>(){
+                        if let Ok(bool_value) = value.parse::<bool>() {
                             result.commit_when_sender_is_bot = bool_value;
-                        }else{
+                        } else {
                             missing_vars.push(var);
                         }
                     }
@@ -44,7 +45,7 @@ impl AppEnvVars {
             }
             missing_vars.push(var);
         }
-        if !missing_vars.is_empty(){
+        if !missing_vars.is_empty() {
             let missing_vars_joined = missing_vars.join(", ");
             bail!(AppErrors::MissingEvironmentVariables(missing_vars_joined));
         }
