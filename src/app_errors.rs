@@ -16,6 +16,10 @@ pub enum AppErrors<'a> {
     SignatureError(&'a str),
     #[error("Failed to parse payload")]
     InvalidPayload(),
+    #[error("Could not deserialise installation file: `{0}`")]
+    InvalidDeserializationInstallationFile(String),
+    #[error("Could save installation file: `{0}`")]
+    FailedToSaveInstallationFile(String),
     //#[error("invalid header (expected {expected:?}, found {found:?})")]
     //InvalidHeader { expected: String, found: String },
     //#[error("unknown data store error")]

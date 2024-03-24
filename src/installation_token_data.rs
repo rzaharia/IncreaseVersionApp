@@ -1,13 +1,12 @@
-use std::{
-    collections::HashMap,
-    fmt::format,
-    io::{Read, Write},
-};
+use std::fs;
 
-use log::error;
+use anyhow::{bail, Result};
+use chrono::{DateTime, TimeZone, Utc};
+use log::{info, warn};
 use serde::{Deserialize, Serialize};
 use serde_json;
-use tokio::fs::OpenOptions;
+
+use crate::app_errors::AppErrors;
 
 #[derive(Serialize, Deserialize)]
 pub struct InstallationTokenPermissions {
@@ -22,80 +21,56 @@ pub struct InstallationToken {
     pub permissions: InstallationTokenPermissions,
     pub repository_selection: String,
 }
+
+impl InstallationToken {
+    pub fn is_token_valid(&self) -> bool {
+        // Parse expiration time
+        let Ok(given_time) =
+            DateTime::parse_from_str(self.expires_at.as_str(), "%Y-%m-%dT%H:%M:%SZ")
+        else {
+            warn!("Failed to parse expires_at {}", self.expires_at);
+            return false;
+        };
+
+        // Localize to UTC timezone
+        let given_time_utc = Utc.from_utc_datetime(&given_time.naive_utc());
+        return given_time_utc > Utc::now();
+    }
+}
+
 #[derive(Serialize, Deserialize)]
 pub struct InstallationTokenFileContent {
-    pub installations: HashMap<String, InstallationToken>,
-}
-static FILE_NAME: &str = "tokens_data.json";
-pub async fn read_file() -> Result<InstallationTokenFileContent, String> {
-    //TODO: sync read and write
-    let file_res = OpenOptions::new().read(true).open(FILE_NAME).await;
-    if let Err(_) = file_res {
-        return Ok(InstallationTokenFileContent {
-            installations: HashMap::new(),
-        });
-    }
-    let mut file = file_res.unwrap().into_std().await;
-    let data = tokio::task::spawn_blocking(move || {
-        let mut s = String::new();
-        if let Err(_) = file.read_to_string(&mut s) {
-            error!("Failed to read file!");
-            return Err("Failed to read file!");
-        }
-        Ok(s)
-    })
-    .await;
-
-    if let Err(err) = data {
-        let err_data = format!("Failed to get data: {err}");
-        return Err(err_data);
-    }
-    let data = data.unwrap();
-    if let Err(err) = data {
-        let err_data = format!("Failed to get data: {err}");
-        return Err(err_data);
-    }
-    let data = data.unwrap();
-    let file_content: Result<InstallationTokenFileContent, serde_json::Error> =
-        serde_json::from_slice(data.as_bytes());
-    if let Err(err) = file_content {
-        let err_data = format!("Failed to get data: {err}");
-        return Err(err_data);
-    }
-
-    Ok(file_content.unwrap())
+    pub token_data: InstallationToken,
 }
 
-pub async fn write_file(token_content: InstallationTokenFileContent) -> Result<(), String> {
-    let file_res = OpenOptions::new().write(true).open(FILE_NAME).await;
-    if let Err(err) = file_res {
-        return Err(format!("{err}"));
-    }
-    let mut file = file_res.unwrap().into_std().await;
-    let result = tokio::task::spawn_blocking(move || {
-        let data = serde_json::to_string(&token_content);
-        if let Err(err) = data {
-            let err_string = format!("{err}");
-            return Err(err_string);
-        }
-        let data = data.unwrap();
-        if let Err(err) = file.write_all(data.as_bytes()) {
-            let err_string = format!("{err}");
-            return Err(err_string);
-        }
+pub fn read_installation_data(file_loc: &String) -> Option<InstallationTokenFileContent> {
+    let Ok(data) = fs::read_to_string(file_loc) else {
+        info!("Failed read installation file: `{file_loc}`");
+        return None;
+    };
 
-        Ok(())
-    })
-    .await;
+    let Ok(file_content) = serde_json::from_slice::<InstallationTokenFileContent>(data.as_bytes())
+    else {
+        info!("Failed to parse installation file: `{file_loc}`");
+        return None;
+    };
 
-    if let Err(err) = result {
-        let err_string = format!("{err}");
-        return Err(err_string);
+    if !file_content.token_data.is_token_valid() {
+        info!("Installation token has expired");
+        return None;
     }
-    let result = result.unwrap();
-    if let Err(err) = result {
-        let err_string = format!("{err}");
-        return Err(err_string);
+
+    Some(file_content)
+}
+
+pub fn write_file(file_loc: &String, token_content: InstallationTokenFileContent) -> Result<()> {
+    let Ok(data) = serde_json::to_string(&token_content) else {
+        bail!(AppErrors::InvalidDeserializationInstallationFile(
+            file_loc.clone()
+        ));
+    };
+    if let Err(err) = fs::write(file_loc, data) {
+        bail!(AppErrors::FailedToSaveInstallationFile(err.to_string()));
     }
     Ok(())
 }
