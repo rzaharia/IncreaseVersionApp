@@ -1,5 +1,5 @@
 use crate::{
-    app_apis::get_app_info,
+    app_apis::get_access_token,
     app_config::AppEnvVars,
     app_errors::AppErrors,
     installation_token_data::{
@@ -8,13 +8,13 @@ use crate::{
     webhook_data::WebWebHook,
 };
 use anyhow::{bail, Result};
+use axum::extract::rejection::FailedToBufferBody;
 use chrono::{TimeDelta, Utc};
 use jsonwebtoken::{self, Algorithm, EncodingKey, Header};
 use log::info;
 use serde::{Deserialize, Serialize};
 
-/// Our claims struct, it needs to derive `Serialize` and/or `Deserialize`
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Serialize, Deserialize)]
 struct Payload {
     iat: i64,
     exp: i64,
@@ -64,6 +64,7 @@ pub async fn increase_version(env_vars: &AppEnvVars, webhook: WebWebHook) -> Res
     let file_name = format!("{}.json", webhook.installation.id);
     let mut current_installation: Option<InstallationTokenFileContent> =
         read_installation_data(&file_name);
+    let mut token_needs_saving = false;
     if current_installation.is_none() {
         let jwt = create_jwt(&env_vars).await?;
         // let app_data = get_app_info(jwt.as_str()).await?;
@@ -71,10 +72,14 @@ pub async fn increase_version(env_vars: &AppEnvVars, webhook: WebWebHook) -> Res
         //     "Found app id:`{}`, slug:`{}`,name:{}",
         //     app_data.id, app_data.slug, app_data.name
         // );
+        current_installation = Some(InstallationTokenFileContent {
+            token_data: get_access_token(webhook.installation.id, jwt.as_str()).await?,
+        });
+        token_needs_saving = true;
     }
 
-    if current_installation.is_some() {
-        info!("Saved installation data!");
+    if token_needs_saving && current_installation.is_some() {
+        info!("Saved installation data {file_name}!");
         save_installation_data(&file_name, current_installation.unwrap())?;
     }
     Ok(())

@@ -7,8 +7,7 @@ mod webhook_data;
 mod worker;
 extern crate dotenv;
 use crate::{
-    app_config::{AppEnvVars, WEBHOOK_COMMIT_TYPE_BOT, WEBHOOK_OBSERVED_REF},
-    worker::increase_version,
+    app_config::{AppEnvVars, WEBHOOK_COMMIT_TYPE_BOT, WEBHOOK_OBSERVED_REF}, installation_token_data::create_token_folder, worker::increase_version
 };
 use anyhow::Result;
 use axum::{
@@ -57,6 +56,10 @@ async fn main() {
         panic!("Invalid environment variables: {err_string}");
     }
     let env_vars = env_vars_res.unwrap();
+
+    if let Err(err) = create_token_folder() {
+        panic!("Failed to create required folder: {err}");
+    }
 
     //TODO: replace log with trace
     init_logger().unwrap();
