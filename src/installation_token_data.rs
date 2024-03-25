@@ -46,7 +46,9 @@ pub struct InstallationTokenFileContent {
 
 static ISTALLATION_DATA_PATH: &str = "tokens";
 pub fn create_token_folder() -> Result<()> {
-    fs::create_dir(ISTALLATION_DATA_PATH)?;
+    if !Path::new(ISTALLATION_DATA_PATH).exists() {
+        fs::create_dir(ISTALLATION_DATA_PATH)?;
+    }
     Ok(())
 }
 
