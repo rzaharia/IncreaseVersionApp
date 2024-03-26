@@ -1,5 +1,5 @@
 use crate::{
-    app_apis::get_access_token,
+    app_apis::{get_access_token, get_repo_file_content},
     app_config::AppEnvVars,
     app_errors::AppErrors,
     installation_token_data::{
@@ -77,9 +77,20 @@ pub async fn increase_version(env_vars: &AppEnvVars, webhook: WebWebHook) -> Res
         token_needs_saving = true;
     }
 
-    if token_needs_saving && current_installation.is_some() {
+    let installation = current_installation.unwrap();
+    if token_needs_saving {
         info!("Saved installation data {file_name}!");
-        save_installation_data(&file_name, current_installation.unwrap())?;
+        save_installation_data(&file_name, &installation)?;
     }
+
+    let file = get_repo_file_content(
+        &installation.token_data.token,
+        &webhook.repository.owner.name,
+        &webhook.repository.name,
+        &env_vars.file_to_download,
+        &env_vars.pattern_version_to_search
+    )
+    .await?;
+
     Ok(())
 }

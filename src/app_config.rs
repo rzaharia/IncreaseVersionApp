@@ -6,13 +6,14 @@ use crate::app_errors::AppErrors;
 pub static WEBHOOK_OBSERVED_REF: &str = "refs/heads/main";
 pub static WEBHOOK_COMMIT_TYPE_BOT: &str = "Bot";
 
-static EXPECTED_ENV_VARS: [&str; 6] = [
+static EXPECTED_ENV_VARS: [&str; 7] = [
     "CALLBACK_SECRET_TOKEN",
     "APP_NAME",
     "COMMIT_WHEN_SENDER_IS_BOT",
     "PRIVATE_KEY_FILE_LOC",
     "APP_ID",
     "FILE_TO_DOWNLOAD",
+    "PATTERN_VERSION_TO_SEARCH",
 ];
 
 #[derive(Clone, Default)] //Clone needed by axum state
@@ -23,6 +24,7 @@ pub struct AppEnvVars {
     pub private_signature: String,
     pub app_id: u128,
     pub file_to_download: String,
+    pub pattern_version_to_search: String,
 }
 
 fn try_read_file(file_loc: &String) -> Result<String> {
@@ -73,6 +75,7 @@ impl AppEnvVars {
                         }
                     }
                     "FILE_TO_DOWNLOAD" => result.file_to_download = value,
+                    "PATTERN_VERSION_TO_SEARCH" => result.pattern_version_to_search = value,
                     _ => {}
                 }
                 continue;

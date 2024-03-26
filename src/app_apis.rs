@@ -1,9 +1,13 @@
-use anyhow::{bail, Result};
+use anyhow::{bail, ensure, Result};
 use axum::http::HeaderMap;
+use base64::engine::{self};
+use base64::{self, Engine as _};
+use log::info;
 use reqwest::header::{HeaderValue, ACCEPT, AUTHORIZATION, USER_AGENT};
 use reqwest::{Client, ClientBuilder};
 use serde::Deserialize;
 
+use crate::app_config::AppEnvVars;
 use crate::app_errors::AppErrors;
 use crate::installation_token_data::InstallationToken;
 
@@ -13,6 +17,68 @@ pub struct AuthenticatedAppData {
     pub id: u128,
     pub slug: String,
     pub name: String,
+}
+
+#[derive(Deserialize)]
+pub struct FileConteAppDataApi {
+    #[serde(rename = "type")]
+    pub type_: String,
+    pub encoding: String,
+    pub size: u64,
+    pub name: String,
+    pub path: String,
+    pub content: String,
+}
+
+impl FileConteAppDataApi {
+    pub fn decode_file(&mut self) -> Result<()> {
+        ensure!(
+            self.encoding == "base64",
+            AppErrors::FailedToDecodeFile("Not supported encoding format", self.encoding.clone())
+        );
+        let engine = engine::general_purpose::STANDARD;
+
+        let mut buffer: Vec<u8> = Vec::with_capacity(self.size as usize);
+        for line in self.content.split('\n') {
+            engine.decode_vec(line.as_bytes(), &mut buffer)?;
+        }
+        self.content = String::from_utf8(buffer)?;
+        Ok(())
+    }
+
+    pub fn increase_version(&mut self, pattern_version_to_search: &String) -> Result<()> {
+        let Some(version_pos) = self.content.find(pattern_version_to_search) else {
+            let err = format!("Could not find pattern: {}", pattern_version_to_search);
+            bail!(AppErrors::FailedToIncreaseVersionInFile(err));
+        };
+
+        let mut endline_pos = self.content.as_str()[version_pos..].find('\n');
+        if endline_pos.is_none() {
+            endline_pos = Some(self.size as usize);
+        }
+        let mut endline_pos = endline_pos.unwrap();
+        endline_pos += version_pos;
+
+        let version_line = &self.content.as_str()[version_pos..endline_pos];
+        let actual_version = &self.content.as_str()
+            [version_pos + pattern_version_to_search.len()..endline_pos]
+            .trim_matches(|c| c == ' ' || c == '"');
+
+        let mut version_split: Vec<&str> = actual_version.split('.').collect();
+        ensure!(
+            version_split.len() == 3,
+            AppErrors::FailedToIncreaseVersionInFile(
+                "Failed to obtain version in format: MAJOR.MINOR.PATCH".to_string()
+            )
+        );
+        let temp_mid_string = (version_split[1].parse::<u32>()? + 1).to_string();
+        version_split[1] = temp_mid_string.as_str();
+
+        let version_split = version_split.join(".");
+        let final_version = format!("{} \"{}\"", pattern_version_to_search, version_split);
+        self.content = self.content.replace(version_line, &final_version);
+        Ok(())
+    }
 }
 
 fn get_client_with_default_headers(jwt_token: &str) -> Result<Client, reqwest::Error> {
@@ -76,6 +142,42 @@ pub async fn get_access_token_impl(
 pub async fn get_access_token(installation_id: u128, jwt_token: &str) -> Result<InstallationToken> {
     match get_access_token_impl(installation_id, jwt_token).await {
         Ok(result) => return Ok(result),
+        Err(err) => bail!(AppErrors::ApiFailure(
+            "get_access_token",
+            err.without_url().to_string()
+        )),
+    }
+}
+
+pub async fn get_repo_file_content_impl(
+    token: &str,
+    repo_owner: &String,
+    repo_name: &String,
+    file_path: &String,
+) -> Result<FileConteAppDataApi, reqwest::Error> {
+    let client = get_client_with_default_headers(token)?;
+    let link =
+        format!("https://api.github.com/repos/{repo_owner}/{repo_name}/contents/{file_path}");
+    let response = client.get(link).send().await?;
+
+    let data = response.json::<FileConteAppDataApi>().await?;
+    Ok(data)
+}
+
+//https://docs.github.com/en/rest/repos/contents?apiVersion=2022-11-28
+pub async fn get_repo_file_content(
+    token: &str,
+    repo_owner: &String,
+    repo_name: &String,
+    file_path: &String,
+    pattern_version_to_search: &String,
+) -> Result<FileConteAppDataApi> {
+    match get_repo_file_content_impl(token, repo_owner, repo_name, file_path).await {
+        Ok(mut result) => {
+            result.decode_file()?;
+            result.increase_version(&pattern_version_to_search);
+            return Ok(result);
+        }
         Err(err) => bail!(AppErrors::ApiFailure(
             "get_access_token",
             err.without_url().to_string()

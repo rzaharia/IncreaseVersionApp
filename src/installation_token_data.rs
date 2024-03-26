@@ -80,7 +80,7 @@ pub fn read_installation_data(file_loc: &String) -> Option<InstallationTokenFile
 
 pub fn save_installation_data(
     file_loc: &String,
-    token_content: InstallationTokenFileContent,
+    token_content: &InstallationTokenFileContent,
 ) -> Result<()> {
     let Ok(data) = serde_json::to_string(&token_content) else {
         bail!(AppErrors::InvalidDeserializationInstallationFile(

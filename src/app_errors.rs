@@ -26,8 +26,8 @@ pub enum AppErrors<'a> {
     FailedToProcessJWD(String),
     #[error("Found problems during API call {0}: `{1}`")]
     ApiFailure(&'a str, String),
-    //#[error("invalid header (expected {expected:?}, found {found:?})")]
-    //InvalidHeader { expected: String, found: String },
-    //#[error("unknown data store error")]
-    //Unknown,
+    #[error("Failed to decode file: {0} {1}")]
+    FailedToDecodeFile(&'a str, String),
+    #[error("Failed increase version in file: {0}")]
+    FailedToIncreaseVersionInFile(String),
 }
