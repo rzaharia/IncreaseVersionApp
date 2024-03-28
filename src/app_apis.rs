@@ -42,6 +42,12 @@ pub struct GithubTreeData {
     //url:String,
 }
 
+#[derive(Deserialize)]
+pub struct GithubCommitData {
+    sha: String,
+    //url:String,
+}
+
 impl FileConteAppDataApi {
     pub fn decode_file(&mut self) -> Result<()> {
         ensure!(
@@ -228,7 +234,7 @@ async fn create_tree_impl(
     });
 
     let client = get_client_with_default_headers(token)?;
-    let link = format!("https://api.github.com/repos/{repo_owner}/{repo_name}/git/trees",);
+    let link = format!("https://api.github.com/repos/{repo_owner}/{repo_name}/git/trees");
     let response = client.post(link).json(&body_data).send().await?;
     let status_code = response.status();
 
@@ -236,6 +242,7 @@ async fn create_tree_impl(
     Ok((data, status_code))
 }
 
+// https://docs.github.com/en/rest/git/trees?apiVersion=2022-11-28
 pub async fn create_tree(
     token: &str,
     repo_owner: &String,
@@ -254,6 +261,65 @@ pub async fn create_tree(
         }
         Err(err) => bail!(AppErrors::ApiFailure(
             "create_tree",
+            err.without_url().to_string()
+        )),
+    }
+}
+
+async fn create_commit_impl(
+    token: &str,
+    repo_owner: &String,
+    repo_name: &String,
+    commit: &String,
+    file_content: &FileConteAppDataDecoded,
+    tree_data: &GithubTreeData,
+) -> Result<(GithubCommitData, StatusCode), reqwest::Error> {
+    let client = get_client_with_default_headers(token)?;
+
+    let body_data = json!({
+        "message": format!("Increase version to {}",file_content.new_version),
+        "parents": [commit],
+        "tree": tree_data.sha,
+    });
+
+    let link = format!("https://api.github.com/repos/{repo_owner}/{repo_name}/git/commits");
+    let response = client.post(link).json(&body_data).send().await?;
+    let status_code = response.status();
+
+    let data = response.json::<GithubCommitData>().await?;
+    Ok((data, status_code))
+}
+
+//https://docs.github.com/en/rest/git/commits
+pub async fn create_commit(
+    token: &str,
+    repo_owner: &String,
+    repo_name: &String,
+    commit: &String,
+    file_content: &FileConteAppDataDecoded,
+    tree_data: &GithubTreeData,
+) -> Result<GithubCommitData> {
+    match create_commit_impl(
+        token,
+        repo_owner,
+        repo_name,
+        commit,
+        file_content,
+        tree_data,
+    )
+    .await
+    {
+        Ok((result, status_code)) => {
+            if status_code != StatusCode::CREATED {
+                let err_msg = format!(
+                    "Failed to create commit, expectected status 201 and got {status_code}"
+                );
+                bail!(AppErrors::ApiFailure("create_commit", err_msg));
+            }
+            return Ok(result);
+        }
+        Err(err) => bail!(AppErrors::ApiFailure(
+            "create_commit",
             err.without_url().to_string()
         )),
     }
