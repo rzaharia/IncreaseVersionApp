@@ -1,5 +1,7 @@
 use crate::{
-    app_apis::{create_commit, create_tree, get_access_token, get_repo_file_content},
+    app_apis::{
+        create_commit, create_tree, get_access_token, get_repo_file_content, update_a_refence,
+    },
     app_config::AppEnvVars,
     app_errors::AppErrors,
     installation_token_data::{
@@ -114,6 +116,15 @@ pub async fn increase_version(env_vars: &AppEnvVars, webhook: WebWebHook) -> Res
         &commit,
         &file_data,
         &tree_data,
+    )
+    .await?;
+
+    let final_res = update_a_refence(
+        &installation.token_data.token,
+        &webhook.repository.owner.name,
+        &webhook.repository.name,
+        &commit_data,
+        &"refs/heads/main".to_string(),
     )
     .await?;
 

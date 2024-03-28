@@ -324,3 +324,43 @@ pub async fn create_commit(
         )),
     }
 }
+
+async fn update_a_refence_impl(
+    token: &str,
+    repo_owner: &String,
+    repo_name: &String,
+    commit_data: &GithubCommitData,
+    ref_to_use: &String,
+) -> Result<GithubCommitData, reqwest::Error> {
+    let client = get_client_with_default_headers(token)?;
+
+    let body_data = json!({
+        "sha": commit_data.sha,
+        "force": true
+    });
+
+    let link = format!("https://api.github.com/repos/{repo_owner}/{repo_name}/git/{ref_to_use}");
+    let response = client.post(link).json(&body_data).send().await?;
+
+    let data = response.json::<GithubCommitData>().await?;
+    Ok(data)
+}
+
+//https://docs.github.com/en/rest/git/refs?apiVersion=2022-11-28
+pub async fn update_a_refence(
+    token: &str,
+    repo_owner: &String,
+    repo_name: &String,
+    commit_data: &GithubCommitData,
+    ref_to_use: &String,
+) -> Result<GithubCommitData> {
+    match update_a_refence_impl(token, repo_owner, repo_name, commit_data, ref_to_use).await {
+        Ok(result) => {
+            return Ok(result);
+        }
+        Err(err) => bail!(AppErrors::ApiFailure(
+            "update_a_refence",
+            err.without_url().to_string()
+        )),
+    }
+}
