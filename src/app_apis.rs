@@ -331,7 +331,7 @@ async fn update_a_refence_impl(
     repo_name: &String,
     commit_data: &GithubCommitData,
     ref_to_use: &String,
-) -> Result<GithubCommitData, reqwest::Error> {
+) -> Result<(), reqwest::Error> {
     let client = get_client_with_default_headers(token)?;
 
     let body_data = json!({
@@ -340,10 +340,8 @@ async fn update_a_refence_impl(
     });
 
     let link = format!("https://api.github.com/repos/{repo_owner}/{repo_name}/git/{ref_to_use}");
-    let response = client.post(link).json(&body_data).send().await?;
-
-    let data = response.json::<GithubCommitData>().await?;
-    Ok(data)
+    let _ = client.post(link).json(&body_data).send().await?;
+    Ok(())
 }
 
 //https://docs.github.com/en/rest/git/refs?apiVersion=2022-11-28
@@ -353,10 +351,10 @@ pub async fn update_a_refence(
     repo_name: &String,
     commit_data: &GithubCommitData,
     ref_to_use: &String,
-) -> Result<GithubCommitData> {
+) -> Result<()> {
     match update_a_refence_impl(token, repo_owner, repo_name, commit_data, ref_to_use).await {
-        Ok(result) => {
-            return Ok(result);
+        Ok(()) => {
+            return Ok(());
         }
         Err(err) => bail!(AppErrors::ApiFailure(
             "update_a_refence",
