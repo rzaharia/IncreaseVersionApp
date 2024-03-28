@@ -2,12 +2,11 @@ use anyhow::{bail, ensure, Result};
 use axum::http::HeaderMap;
 use base64::engine::{self};
 use base64::{self, Engine as _};
-use log::info;
 use reqwest::header::{HeaderValue, ACCEPT, AUTHORIZATION, USER_AGENT};
-use reqwest::{Client, ClientBuilder};
+use reqwest::{Client, ClientBuilder, StatusCode};
 use serde::Deserialize;
+use serde_json::json;
 
-use crate::app_config::AppEnvVars;
 use crate::app_errors::AppErrors;
 use crate::installation_token_data::InstallationToken;
 
@@ -30,6 +29,19 @@ pub struct FileConteAppDataApi {
     pub content: String,
 }
 
+pub struct FileConteAppDataDecoded {
+    pub name: String,
+    pub path: String,
+    pub content: String,
+    pub new_version: String,
+}
+
+#[derive(Deserialize)]
+pub struct GithubTreeData {
+    sha: String,
+    //url:String,
+}
+
 impl FileConteAppDataApi {
     pub fn decode_file(&mut self) -> Result<()> {
         ensure!(
@@ -46,7 +58,10 @@ impl FileConteAppDataApi {
         Ok(())
     }
 
-    pub fn increase_version(&mut self, pattern_version_to_search: &String) -> Result<()> {
+    pub fn increase_version(
+        self,
+        pattern_version_to_search: &String,
+    ) -> Result<FileConteAppDataDecoded> {
         let Some(version_pos) = self.content.find(pattern_version_to_search) else {
             let err = format!("Could not find pattern: {}", pattern_version_to_search);
             bail!(AppErrors::FailedToIncreaseVersionInFile(err));
@@ -76,8 +91,16 @@ impl FileConteAppDataApi {
 
         let version_split = version_split.join(".");
         let final_version = format!("{} \"{}\"", pattern_version_to_search, version_split);
-        self.content = self.content.replace(version_line, &final_version);
-        Ok(())
+        let new_content = self.content.replace(version_line, &final_version);
+
+        let result = FileConteAppDataDecoded {
+            name: self.name,
+            path: self.path,
+            content: new_content,
+            new_version: version_split,
+        };
+
+        Ok(result)
     }
 }
 
@@ -171,15 +194,66 @@ pub async fn get_repo_file_content(
     repo_name: &String,
     file_path: &String,
     pattern_version_to_search: &String,
-) -> Result<FileConteAppDataApi> {
+) -> Result<FileConteAppDataDecoded> {
     match get_repo_file_content_impl(token, repo_owner, repo_name, file_path).await {
         Ok(mut result) => {
             result.decode_file()?;
-            result.increase_version(&pattern_version_to_search);
-            return Ok(result);
+            let decoded_data = result.increase_version(&pattern_version_to_search)?;
+            return Ok(decoded_data);
         }
         Err(err) => bail!(AppErrors::ApiFailure(
             "get_access_token",
+            err.without_url().to_string()
+        )),
+    }
+}
+
+async fn create_tree_impl(
+    token: &str,
+    repo_owner: &String,
+    repo_name: &String,
+    base_tree: &String,
+    file_content: &FileConteAppDataDecoded,
+) -> Result<(GithubTreeData, StatusCode), reqwest::Error> {
+    let body_data = json!({
+        "base_tree": base_tree,
+        "tree": [
+            {
+                "path": file_content.path,
+                "mode": "100644",
+                "type": "blob",
+                "content": file_content.content
+            }
+        ]
+    });
+
+    let client = get_client_with_default_headers(token)?;
+    let link = format!("https://api.github.com/repos/{repo_owner}/{repo_name}/git/trees",);
+    let response = client.post(link).json(&body_data).send().await?;
+    let status_code = response.status();
+
+    let data = response.json::<GithubTreeData>().await?;
+    Ok((data, status_code))
+}
+
+pub async fn create_tree(
+    token: &str,
+    repo_owner: &String,
+    repo_name: &String,
+    base_tree: &String,
+    file_content: &FileConteAppDataDecoded,
+) -> Result<GithubTreeData> {
+    match create_tree_impl(token, repo_owner, repo_name, base_tree, file_content).await {
+        Ok((result, status_code)) => {
+            if status_code != StatusCode::CREATED {
+                let err_msg =
+                    format!("Failed to create tree, expectected status 201 and got {status_code}");
+                bail!(AppErrors::ApiFailure("create_tree", err_msg));
+            }
+            return Ok(result);
+        }
+        Err(err) => bail!(AppErrors::ApiFailure(
+            "create_tree",
             err.without_url().to_string()
         )),
     }

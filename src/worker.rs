@@ -1,5 +1,5 @@
 use crate::{
-    app_apis::{get_access_token, get_repo_file_content},
+    app_apis::{create_tree, get_access_token, get_repo_file_content},
     app_config::AppEnvVars,
     app_errors::AppErrors,
     installation_token_data::{
@@ -7,7 +7,7 @@ use crate::{
     },
     webhook_data::WebWebHook,
 };
-use anyhow::{bail, Result};
+use anyhow::{bail, ensure, Result};
 use chrono::{TimeDelta, Utc};
 use jsonwebtoken::{self, Algorithm, EncodingKey, Header};
 use log::info;
@@ -83,12 +83,27 @@ pub async fn increase_version(env_vars: &AppEnvVars, webhook: WebWebHook) -> Res
         save_installation_data(&file_name, &installation)?;
     }
 
-    let file = get_repo_file_content(
+    let file_data = get_repo_file_content(
         &installation.token_data.token,
         &webhook.repository.owner.name,
         &webhook.repository.name,
         &env_vars.file_to_download,
-        &env_vars.pattern_version_to_search
+        &env_vars.pattern_version_to_search,
+    )
+    .await?;
+
+    ensure!(
+        !webhook.commits.is_empty(),
+        AppErrors::ApiFailure("increase_version_tree", "No commits available".to_string())
+    );
+
+    let commit: &String = &webhook.commits[0].id;
+    let tree_data = create_tree(
+        &installation.token_data.token,
+        &webhook.repository.owner.name,
+        &webhook.repository.name,
+        &commit,
+        &file_data,
     )
     .await?;
 
