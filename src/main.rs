@@ -7,7 +7,9 @@ mod webhook_data;
 mod worker;
 extern crate dotenv;
 use crate::{
-    app_config::{AppEnvVars, WEBHOOK_COMMIT_TYPE_BOT, WEBHOOK_OBSERVED_REF}, installation_token_data::create_token_folder, worker::increase_version
+    app_config::{AppEnvVars, WEBHOOK_COMMIT_TYPE_BOT, WEBHOOK_OBSERVED_REF},
+    installation_token_data::create_token_folder,
+    worker::increase_version,
 };
 use anyhow::Result;
 use axum::{

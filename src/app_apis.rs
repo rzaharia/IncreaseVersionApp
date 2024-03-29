@@ -146,7 +146,7 @@ async fn get_app_info_impl(jwt_token: &str) -> Result<AuthenticatedAppData, reqw
 #[allow(dead_code)] //method used for testing if app is valid
 pub async fn get_app_info(jwt_token: &str) -> Result<AuthenticatedAppData> {
     match get_app_info_impl(jwt_token).await {
-        Ok(result) => return Ok(result),
+        Ok(result) => Ok(result),
         Err(err) => bail!(AppErrors::ApiFailure(
             "get_app_info_impl",
             err.without_url().to_string()
@@ -170,7 +170,7 @@ pub async fn get_access_token_impl(
 //https://docs.github.com/en/rest/apps/apps?apiVersion=2022-11-28#get-an-installation-for-the-authenticated-app
 pub async fn get_access_token(installation_id: u128, jwt_token: &str) -> Result<InstallationToken> {
     match get_access_token_impl(installation_id, jwt_token).await {
-        Ok(result) => return Ok(result),
+        Ok(result) => Ok(result),
         Err(err) => bail!(AppErrors::ApiFailure(
             "get_access_token",
             err.without_url().to_string()
@@ -204,8 +204,8 @@ pub async fn get_repo_file_content(
     match get_repo_file_content_impl(token, repo_owner, repo_name, file_path).await {
         Ok(mut result) => {
             result.decode_file()?;
-            let decoded_data = result.increase_version(&pattern_version_to_search)?;
-            return Ok(decoded_data);
+            let decoded_data = result.increase_version(pattern_version_to_search)?;
+            Ok(decoded_data)
         }
         Err(err) => bail!(AppErrors::ApiFailure(
             "get_access_token",
@@ -257,7 +257,7 @@ pub async fn create_tree(
                     format!("Failed to create tree, expectected status 201 and got {status_code}");
                 bail!(AppErrors::ApiFailure("create_tree", err_msg));
             }
-            return Ok(result);
+            Ok(result)
         }
         Err(err) => bail!(AppErrors::ApiFailure(
             "create_tree",
@@ -316,7 +316,7 @@ pub async fn create_commit(
                 );
                 bail!(AppErrors::ApiFailure("create_commit", err_msg));
             }
-            return Ok(result);
+            Ok(result)
         }
         Err(err) => bail!(AppErrors::ApiFailure(
             "create_commit",
@@ -353,9 +353,7 @@ pub async fn update_a_refence(
     ref_to_use: &String,
 ) -> Result<()> {
     match update_a_refence_impl(token, repo_owner, repo_name, commit_data, ref_to_use).await {
-        Ok(()) => {
-            return Ok(());
-        }
+        Ok(()) => Ok(()),
         Err(err) => bail!(AppErrors::ApiFailure(
             "update_a_refence",
             err.without_url().to_string()

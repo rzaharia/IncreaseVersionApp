@@ -2,7 +2,6 @@ use crate::app_config::AppEnvVars;
 use crate::{app_errors::AppErrors, webhook_data::WebWebHook};
 use anyhow::{bail, ensure, Result};
 use axum::{body::Bytes, http::HeaderMap};
-use hex;
 use hmac::{Hmac, Mac};
 use sha2::Sha256;
 use std::collections::HashMap;

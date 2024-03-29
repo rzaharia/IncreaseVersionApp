@@ -7,7 +7,6 @@ use anyhow::{bail, Result};
 use chrono::{DateTime, TimeZone, Utc};
 use log::{info, warn};
 use serde::{Deserialize, Serialize};
-use serde_json;
 
 use crate::app_errors::AppErrors;
 
@@ -35,7 +34,7 @@ impl InstallationToken {
 
         // Localize to UTC timezone
         let given_time_utc = Utc.from_utc_datetime(&given_time.naive_utc());
-        return given_time_utc > Utc::now();
+        given_time_utc > Utc::now()
     }
 }
 
