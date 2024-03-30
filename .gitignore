@@ -11,3 +11,4 @@ Cargo.lock
 !.vscode/*.code-snippets
 .env
 tokens
+config/IncreaseAppVersion.json

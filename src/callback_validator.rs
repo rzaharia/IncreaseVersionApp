@@ -1,4 +1,4 @@
-use crate::app_config::AppEnvVars;
+use crate::app_config::AppConfig;
 use crate::{app_errors::AppErrors, webhook_data::WebWebHook};
 use anyhow::{bail, ensure, Result};
 use axum::{body::Bytes, http::HeaderMap};
@@ -101,7 +101,7 @@ async fn verify_signature(
 }
 
 pub async fn callback_validator(
-    env_vars: &AppEnvVars,
+    env_vars: &AppConfig,
     query_params: HashMap<String, String>,
     headers: HeaderMap,
     payload: Bytes,

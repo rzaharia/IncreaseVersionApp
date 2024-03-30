@@ -2,7 +2,7 @@ use crate::{
     app_apis::{
         create_commit, create_tree, get_access_token, get_repo_file_content, update_a_refence,
     },
-    app_config::AppEnvVars,
+    app_config::{AppConfig, WEBHOOK_OBSERVED_REF},
     app_errors::AppErrors,
     installation_token_data::{
         read_installation_data, save_installation_data, InstallationTokenFileContent,
@@ -22,7 +22,7 @@ struct Payload {
     iss: u128,
 }
 
-async fn create_jwt(env_vars: &AppEnvVars) -> Result<String> {
+async fn create_jwt(env_vars: &AppConfig) -> Result<String> {
     let signing_key = &env_vars.private_signature;
 
     let Some(exp_minutes) = TimeDelta::try_minutes(10) else {
@@ -61,7 +61,7 @@ async fn create_jwt(env_vars: &AppEnvVars) -> Result<String> {
     Ok(encoded_jwt.unwrap())
 }
 
-pub async fn increase_version(env_vars: &AppEnvVars, webhook: WebWebHook) -> Result<()> {
+pub async fn increase_version(env_vars: &AppConfig, webhook: WebWebHook) -> Result<()> {
     let file_name = format!("{}.json", webhook.installation.id);
     let mut current_installation: Option<InstallationTokenFileContent> =
         read_installation_data(&file_name);
@@ -124,7 +124,7 @@ pub async fn increase_version(env_vars: &AppEnvVars, webhook: WebWebHook) -> Res
         &webhook.repository.owner.name,
         &webhook.repository.name,
         &commit_data,
-        &"refs/heads/main".to_string(),
+        &WEBHOOK_OBSERVED_REF.to_string(),
     )
     .await?;
 

@@ -7,8 +7,7 @@ mod webhook_data;
 mod worker;
 extern crate dotenv;
 use crate::{
-    app_config::{AppEnvVars, WEBHOOK_COMMIT_TYPE_BOT, WEBHOOK_OBSERVED_REF},
-    installation_token_data::create_token_folder,
+    app_config::{create_app_folder, AppConfig, WEBHOOK_COMMIT_TYPE_BOT, WEBHOOK_OBSERVED_REF},
     worker::increase_version,
 };
 use anyhow::Result;
@@ -52,22 +51,22 @@ pub fn init_logger() -> Result<(), log::SetLoggerError> {
 async fn main() {
     //TODO: follow best practices https://docs.github.com/en/webhooks/using-webhooks/best-practices-for-using-webhooks
     dotenv().ok();
-    let env_vars_res = AppEnvVars::new();
-    if let Err(err) = env_vars_res {
+    let app_config_res = AppConfig::new();
+    if let Err(err) = app_config_res {
         let err_string = err.to_string();
         panic!("Invalid environment variables: {err_string}");
     }
-    let env_vars = env_vars_res.unwrap();
+    let app_config = app_config_res.unwrap();
 
-    if let Err(err) = create_token_folder() {
-        panic!("Failed to create required folder: {err}");
+    if let Err(err) = create_app_folder() {
+        panic!("Failed to create app folders: {err}");
     }
 
     //TODO: replace log with trace
     init_logger().unwrap();
     let app = Router::new()
         .route("/callback", post(callback_entrypoint))
-        .with_state(env_vars);
+        .with_state(app_config);
 
     //add ip whitelisting https://api.github.com/meta
     //axum resource for whitelisting https://docs.rs/axum/latest/axum/struct.Router.html#method.into_make_service_with_connect_info
@@ -78,7 +77,7 @@ async fn main() {
 }
 
 async fn callback_entrypoint_impl(
-    env_vars: AppEnvVars,
+    env_vars: AppConfig,
     params: HashMap<String, String>,
     headers: HeaderMap,
     payload: Bytes,
@@ -111,7 +110,7 @@ async fn callback_entrypoint_impl(
 }
 
 async fn callback_entrypoint(
-    State(env_vars): State<AppEnvVars>,
+    State(env_vars): State<AppConfig>,
     Query(params): Query<HashMap<String, String>>,
     headers: HeaderMap,
     payload: Bytes,
