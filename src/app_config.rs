@@ -1,11 +1,13 @@
-use std::{env, fs, path::Path};
+use std::{
+    env, fs,
+    path::{Path, PathBuf},
+};
 
-use anyhow::{bail, ensure, Result};
+use anyhow::{bail, Result};
 use log::info;
 use serde::{Deserialize, Serialize};
 
 use crate::{app_errors::AppErrors, installation_token_data::create_token_folder};
-pub static WEBHOOK_OBSERVED_REF: &str = "refs/heads/main";
 pub static WEBHOOK_COMMIT_TYPE_BOT: &str = "Bot";
 pub static CONFIG_FILE_APP: &str = "IncreaseAppVersion.json";
 
@@ -49,12 +51,44 @@ pub struct RepositoryConfig {
     pub branch_refs_to_observe: Vec<String>,
 }
 
-fn try_read_file(file_loc: &String) -> Result<String> {
+impl RepositoryConfig {
+    fn generate_default_config(file_name: &str, app_config: &AppConfig) -> RepositoryConfig {
+        let config = RepositoryConfig {
+            commit_when_sender_is_bot: app_config.commit_when_sender_is_bot,
+            file_to_donwload: app_config.file_to_download.clone(),
+            pattern_version_to_search: app_config.pattern_version_to_search.clone(),
+            branch_refs_to_observe: app_config.branch_refs_to_observe.clone(),
+        };
+        let data = serde_json::to_string(&config).expect("failed to convert RepositoryConfig");
+
+        let file_path = get_config_full_path_file(file_name);
+        fs::write(file_path, data).expect("coudl not write RepositoryConfig");
+        info!("Repo config file {file_name} not found, will generate a new one!");
+        config
+    }
+
+    fn read_config_file(file_name: &str) -> Result<RepositoryConfig> {
+        let file_path = get_config_full_path_file(file_name);
+        let file_data = try_read_file(&file_path)?;
+        let app_config = serde_json::from_str::<RepositoryConfig>(file_data.as_str())?;
+
+        Ok(app_config)
+    }
+
+    pub fn new(file_name: &str, app_config: &AppConfig) -> Result<RepositoryConfig> {
+        let Ok(result) = Self::read_config_file(file_name) else {
+            return Ok(Self::generate_default_config(file_name, app_config));
+        };
+        Ok(result)
+    }
+}
+
+fn get_config_full_path_file(file: &str) -> PathBuf {
+    Path::new(CONFIG_DATA_PATH).join(file)
+}
+
+fn try_read_file(file_loc: &PathBuf) -> Result<String> {
     let data = fs::read_to_string(file_loc)?;
-    ensure!(
-        !data.is_empty(),
-        AppErrors::InvalidEvironmentVariable(file_loc.to_string(), "file empty")
-    );
     Ok(data)
 }
 
@@ -78,18 +112,16 @@ impl AppConfig {
         let config = AppConfig::default();
         let data = serde_json::to_string(&config).expect("failed to convert AppConfig");
 
-        let file_path = Path::new(CONFIG_DATA_PATH).join(CONFIG_FILE_APP);
-        let file_path = file_path.to_str().expect("invalid location");
+        let file_path = get_config_full_path_file(CONFIG_FILE_APP);
         fs::write(file_path, data).expect("coudl not write CONFIG_DATA_PATH");
 
         config
     }
 
     fn read_config_file() -> Result<AppConfig> {
-        let file_path = Path::new(CONFIG_DATA_PATH).join(CONFIG_FILE_APP);
-        let file_path = file_path.to_str().expect("invalid location");
-        let file_data = try_read_file(&file_path.to_string())?;
-        let app_config = serde_json::from_str::<AppConfig>(&file_data.as_str())?;
+        let file_path = get_config_full_path_file(CONFIG_FILE_APP);
+        let file_data = try_read_file(&file_path)?;
+        let app_config = serde_json::from_str::<AppConfig>(file_data.as_str())?;
 
         Ok(app_config)
     }
@@ -122,7 +154,7 @@ impl AppConfig {
                         }
                     }
                     "PRIVATE_KEY_FILE_LOC" => {
-                        let Ok(signature) = try_read_file(&value) else {
+                        let Ok(signature) = try_read_file(&Path::new(&value).to_path_buf()) else {
                             bail!(AppErrors::InvalidEvironmentVariable(
                                 var.to_string(),
                                 "could not read file"

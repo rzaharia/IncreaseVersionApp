@@ -7,7 +7,9 @@ mod webhook_data;
 mod worker;
 extern crate dotenv;
 use crate::{
-    app_config::{create_app_folder, AppConfig, WEBHOOK_COMMIT_TYPE_BOT, WEBHOOK_OBSERVED_REF},
+    app_config::{
+        create_app_folder, AppConfig, RepositoryConfig, WEBHOOK_COMMIT_TYPE_BOT
+    },
     worker::increase_version,
 };
 use anyhow::Result;
@@ -77,33 +79,36 @@ async fn main() {
 }
 
 async fn callback_entrypoint_impl(
-    env_vars: AppConfig,
+    app_config: AppConfig,
     params: HashMap<String, String>,
     headers: HeaderMap,
     payload: Bytes,
 ) -> Result<()> {
     info!("Got a callback!");
-    let webhook = callback_validator(&env_vars, params, headers, payload).await?;
+    let webhook = callback_validator(&app_config, params, headers, payload).await?;
 
-    if webhook.ref_ != WEBHOOK_OBSERVED_REF {
+    let file_name = format!("{}.json", webhook.installation.id);
+    let repo_config = RepositoryConfig::new(file_name.as_str(), &app_config)?;
+
+    if !repo_config.branch_refs_to_observe.contains(&webhook.ref_) {
         let found_ref = webhook.ref_;
         info!("Found other ref \"{found_ref}\" than observed one, will stop!");
         return Ok(());
     }
 
     if webhook.sender.type_ == WEBHOOK_COMMIT_TYPE_BOT {
-        if !env_vars.commit_when_sender_is_bot {
+        if !repo_config.commit_when_sender_is_bot {
             info!("Found restriction onyl to commit when the sender is User, will stop here!");
             return Ok(());
         }
 
-        if webhook.sender.login == env_vars.app_name {
+        if webhook.sender.login == app_config.app_name {
             info!("The last commit was made by this bot, will ignore that one!");
             return Ok(());
         }
     }
 
-    increase_version(&env_vars, webhook).await?;
+    increase_version(&app_config,&repo_config, webhook).await?;
 
     info!("ALL GOOD");
     Ok(())

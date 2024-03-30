@@ -188,6 +188,7 @@ pub async fn get_repo_file_content_impl(
     let link =
         format!("https://api.github.com/repos/{repo_owner}/{repo_name}/contents/{file_path}");
     let response = client.get(link).send().await?;
+    let response = response.error_for_status()?;
 
     let data = response.json::<FileConteAppDataApi>().await?;
     Ok(data)
@@ -208,7 +209,7 @@ pub async fn get_repo_file_content(
             Ok(decoded_data)
         }
         Err(err) => bail!(AppErrors::ApiFailure(
-            "get_access_token",
+            "get_repo_file_content",
             err.without_url().to_string()
         )),
     }

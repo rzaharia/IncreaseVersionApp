@@ -101,7 +101,7 @@ async fn verify_signature(
 }
 
 pub async fn callback_validator(
-    env_vars: &AppConfig,
+    app_config: &AppConfig,
     query_params: HashMap<String, String>,
     headers: HeaderMap,
     payload: Bytes,
@@ -114,7 +114,7 @@ pub async fn callback_validator(
     verify_signature(
         &payload,
         signature_header.as_str(),
-        &env_vars.callback_token,
+        &app_config.callback_token,
     )
     .await?;
 

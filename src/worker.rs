@@ -2,7 +2,7 @@ use crate::{
     app_apis::{
         create_commit, create_tree, get_access_token, get_repo_file_content, update_a_refence,
     },
-    app_config::{AppConfig, WEBHOOK_OBSERVED_REF},
+    app_config::{AppConfig, RepositoryConfig},
     app_errors::AppErrors,
     installation_token_data::{
         read_installation_data, save_installation_data, InstallationTokenFileContent,
@@ -61,7 +61,11 @@ async fn create_jwt(env_vars: &AppConfig) -> Result<String> {
     Ok(encoded_jwt.unwrap())
 }
 
-pub async fn increase_version(env_vars: &AppConfig, webhook: WebWebHook) -> Result<()> {
+pub async fn increase_version(
+    env_vars: &AppConfig,
+    repo_config: &RepositoryConfig,
+    webhook: WebWebHook,
+) -> Result<()> {
     let file_name = format!("{}.json", webhook.installation.id);
     let mut current_installation: Option<InstallationTokenFileContent> =
         read_installation_data(&file_name);
@@ -89,8 +93,8 @@ pub async fn increase_version(env_vars: &AppConfig, webhook: WebWebHook) -> Resu
         &installation.token_data.token,
         &webhook.repository.owner.name,
         &webhook.repository.name,
-        &env_vars.file_to_download,
-        &env_vars.pattern_version_to_search,
+        &repo_config.file_to_donwload,
+        &repo_config.pattern_version_to_search,
     )
     .await?;
 
@@ -124,7 +128,7 @@ pub async fn increase_version(env_vars: &AppConfig, webhook: WebWebHook) -> Resu
         &webhook.repository.owner.name,
         &webhook.repository.name,
         &commit_data,
-        &WEBHOOK_OBSERVED_REF.to_string(),
+        &webhook.ref_,
     )
     .await?;
 
