@@ -7,15 +7,15 @@ mod webhook_data;
 mod worker;
 extern crate dotenv;
 use crate::{
-    app_config::{
-        create_app_folder, AppConfig, RepositoryConfig, WEBHOOK_COMMIT_TYPE_BOT
-    },
+    app_apis::get_github_environment_details,
+    app_config::{create_app_folder, AppConfig, RepositoryConfig, WEBHOOK_COMMIT_TYPE_BOT},
     worker::increase_version,
 };
 use anyhow::Result;
+use app_config::SecurityConfig;
 use axum::{
     body::Bytes,
-    extract::{Query, State},
+    extract::{ConnectInfo, Extension, Query, State},
     http::{HeaderMap, StatusCode},
     routing::post,
     Router,
@@ -23,8 +23,8 @@ use axum::{
 use callback_validator::callback_validator;
 use core::panic;
 use dotenv::dotenv;
-use log::info;
-use std::collections::HashMap;
+use log::{error, info};
+use std::{collections::HashMap, net::SocketAddr, sync::Arc};
 use tokio::net::TcpListener;
 
 struct SimpleLogger;
@@ -66,12 +66,20 @@ async fn main() {
 
     //TODO: replace log with trace
     init_logger().unwrap();
+
+    let security_details = get_github_environment_details().await;
+    if let Err(err) = security_details {
+        error!("failed to obtain security settings: {err}");
+        return;
+    }
+    let security_details = Arc::new(security_details.unwrap());
+
     let app = Router::new()
         .route("/callback", post(callback_entrypoint))
-        .with_state(app_config);
+        .with_state(app_config)
+        .layer(Extension(security_details))
+        .into_make_service_with_connect_info::<SocketAddr>();
 
-    //add ip whitelisting https://api.github.com/meta
-    //axum resource for whitelisting https://docs.rs/axum/latest/axum/struct.Router.html#method.into_make_service_with_connect_info
     let addr = "0.0.0.0:3000";
     info!("Started listening on addr: {addr}");
     let listener = TcpListener::bind(addr).await.unwrap();
@@ -108,18 +116,27 @@ async fn callback_entrypoint_impl(
         }
     }
 
-    increase_version(&app_config,&repo_config, webhook).await?;
+    increase_version(&app_config, &repo_config, webhook).await?;
 
     info!("ALL GOOD");
     Ok(())
 }
 
 async fn callback_entrypoint(
+    ConnectInfo(addr): ConnectInfo<SocketAddr>,
     State(env_vars): State<AppConfig>,
+    Extension(security): Extension<Arc<SecurityConfig>>,
     Query(params): Query<HashMap<String, String>>,
     headers: HeaderMap,
     payload: Bytes,
 ) -> (StatusCode, String) {
+    if !env_vars.whitelist_ips.contains(&addr.ip().to_string()) && !security.contains(addr.ip()) {
+        error!(
+            "Invalid ip {} conenected, will be blocked!",
+            addr.ip().to_string()
+        );
+        return (StatusCode::FORBIDDEN, "Invalid".to_string());
+    }
     match callback_entrypoint_impl(env_vars, params, headers, payload).await {
         Ok(()) => (StatusCode::OK, "OK".to_string()),
         Err(err) => {

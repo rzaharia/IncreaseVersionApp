@@ -2,11 +2,13 @@ use anyhow::{bail, ensure, Result};
 use axum::http::HeaderMap;
 use base64::engine::{self};
 use base64::{self, Engine as _};
+use ipnet::IpNet;
 use reqwest::header::{HeaderValue, ACCEPT, AUTHORIZATION, USER_AGENT};
 use reqwest::{Client, ClientBuilder, StatusCode};
 use serde::Deserialize;
 use serde_json::json;
 
+use crate::app_config::SecurityConfig;
 use crate::app_errors::AppErrors;
 use crate::installation_token_data::InstallationToken;
 
@@ -46,6 +48,11 @@ pub struct GithubTreeData {
 pub struct GithubCommitData {
     sha: String,
     //url:String,
+}
+
+#[derive(Deserialize)]
+struct GithubMetaDetails {
+    hooks: Vec<String>,
 }
 
 impl FileConteAppDataApi {
@@ -110,7 +117,7 @@ impl FileConteAppDataApi {
     }
 }
 
-fn get_client_with_default_headers(jwt_token: &str) -> Result<Client, reqwest::Error> {
+fn get_client_with_default_headers(jwt_token: Option<&str>) -> Result<Client, reqwest::Error> {
     let mut headers = HeaderMap::new();
     headers.insert(
         ACCEPT,
@@ -120,10 +127,12 @@ fn get_client_with_default_headers(jwt_token: &str) -> Result<Client, reqwest::E
         USER_AGENT,
         HeaderValue::from_static("IncreaseVersionAPP/0.1.0"),
     );
-    headers.insert(
-        AUTHORIZATION,
-        HeaderValue::from_str(&format!("Bearer {}", jwt_token)).unwrap(),
-    );
+    if let Some(jwt_token) = jwt_token {
+        headers.insert(
+            AUTHORIZATION,
+            HeaderValue::from_str(&format!("Bearer {}", jwt_token)).unwrap(),
+        );
+    }
     headers.insert(
         "X-GitHub-Api-Version",
         HeaderValue::from_static("2022-11-28"),
@@ -135,7 +144,7 @@ fn get_client_with_default_headers(jwt_token: &str) -> Result<Client, reqwest::E
 
 //Get the authenticated app from https://docs.github.com/en/rest/apps/apps?apiVersion=2022-11-28#get-the-authenticated-app
 async fn get_app_info_impl(jwt_token: &str) -> Result<AuthenticatedAppData, reqwest::Error> {
-    let client = get_client_with_default_headers(jwt_token)?;
+    let client = get_client_with_default_headers(Some(jwt_token))?;
     let response = client.get("https://api.github.com/app").send().await?;
 
     let data = response.json::<AuthenticatedAppData>().await?;
@@ -158,7 +167,7 @@ pub async fn get_access_token_impl(
     installation_id: u128,
     jwt_token: &str,
 ) -> Result<InstallationToken, reqwest::Error> {
-    let client = get_client_with_default_headers(jwt_token)?;
+    let client = get_client_with_default_headers(Some(jwt_token))?;
     let link = format!("https://api.github.com/app/installations/{installation_id}/access_tokens");
     let response = client.post(link).send().await?;
 
@@ -184,7 +193,7 @@ pub async fn get_repo_file_content_impl(
     repo_name: &String,
     file_path: &String,
 ) -> Result<FileConteAppDataApi, reqwest::Error> {
-    let client = get_client_with_default_headers(token)?;
+    let client = get_client_with_default_headers(Some(token))?;
     let link =
         format!("https://api.github.com/repos/{repo_owner}/{repo_name}/contents/{file_path}");
     let response = client.get(link).send().await?;
@@ -234,7 +243,7 @@ async fn create_tree_impl(
         ]
     });
 
-    let client = get_client_with_default_headers(token)?;
+    let client = get_client_with_default_headers(Some(token))?;
     let link = format!("https://api.github.com/repos/{repo_owner}/{repo_name}/git/trees");
     let response = client.post(link).json(&body_data).send().await?;
     let status_code = response.status();
@@ -275,7 +284,7 @@ async fn create_commit_impl(
     file_content: &FileConteAppDataDecoded,
     tree_data: &GithubTreeData,
 ) -> Result<(GithubCommitData, StatusCode), reqwest::Error> {
-    let client = get_client_with_default_headers(token)?;
+    let client = get_client_with_default_headers(Some(token))?;
 
     let body_data = json!({
         "message": format!("Increase version to {}",file_content.new_version),
@@ -333,7 +342,7 @@ async fn update_a_refence_impl(
     commit_data: &GithubCommitData,
     ref_to_use: &String,
 ) -> Result<(), reqwest::Error> {
-    let client = get_client_with_default_headers(token)?;
+    let client = get_client_with_default_headers(Some(token))?;
 
     let body_data = json!({
         "sha": commit_data.sha,
@@ -357,6 +366,42 @@ pub async fn update_a_refence(
         Ok(()) => Ok(()),
         Err(err) => bail!(AppErrors::ApiFailure(
             "update_a_refence",
+            err.without_url().to_string()
+        )),
+    }
+}
+
+async fn get_github_environment_details_impl() -> Result<GithubMetaDetails, reqwest::Error> {
+    let client = get_client_with_default_headers(None)?;
+
+    let link = "https://api.github.com/meta";
+    let response = client.get(link).send().await?;
+
+    let data = response.json::<GithubMetaDetails>().await?;
+    Ok(data)
+}
+
+//https://api.github.com/meta
+pub async fn get_github_environment_details() -> Result<SecurityConfig> {
+    match get_github_environment_details_impl().await {
+        Ok(meta_details) => {
+            let subnets: Vec<IpNet> = meta_details
+                .hooks
+                .iter()
+                .filter_map(|p| p.parse().ok())
+                .collect();
+            ensure!(
+                !subnets.is_empty(),
+                AppErrors::ApiFailure(
+                    "get_github_environment_details",
+                    "no valid subnets".to_string()
+                )
+            );
+
+            Ok(SecurityConfig { subnets })
+        }
+        Err(err) => bail!(AppErrors::ApiFailure(
+            "get_github_environment_details",
             err.without_url().to_string()
         )),
     }

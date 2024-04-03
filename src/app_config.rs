@@ -1,9 +1,11 @@
 use std::{
     env, fs,
+    net::IpAddr,
     path::{Path, PathBuf},
 };
 
 use anyhow::{bail, Result};
+use ipnet::IpNet;
 use log::info;
 use serde::{Deserialize, Serialize};
 
@@ -36,6 +38,7 @@ pub struct AppConfig {
     pub app_name: String,
     pub private_signature: String,
     pub app_id: u128,
+    pub whitelist_ips: Vec<String>,
 
     pub commit_when_sender_is_bot: bool,
     pub file_to_download: String,
@@ -99,6 +102,7 @@ impl Default for AppConfig {
             app_name: "IncreaseAppVersion".to_string(),
             private_signature: "sig.pem".to_string(),
             app_id: Default::default(),
+            whitelist_ips: Vec::new(),
             commit_when_sender_is_bot: false,
             file_to_download: "version.hpp".to_string(),
             pattern_version_to_search: "#define VERSION".to_string(),
@@ -186,5 +190,20 @@ impl AppConfig {
         }
 
         Ok(())
+    }
+}
+
+pub struct SecurityConfig {
+    pub subnets: Vec<IpNet>,
+}
+
+impl SecurityConfig {
+    pub fn contains(&self, ip: IpAddr) -> bool {
+        for subnet in &self.subnets {
+            if subnet.contains(&ip) {
+                return true;
+            }
+        }
+        false
     }
 }
